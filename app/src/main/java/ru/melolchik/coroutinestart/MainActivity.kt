@@ -11,6 +11,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -35,18 +37,23 @@ class MainActivity : AppCompatActivity() {
         binding.buttonLoad.setOnClickListener {
             binding.progress.isVisible = true
             binding.buttonLoad.isEnabled = false
-            val jobCity =  lifecycleScope.launch {
+            val deferredCity : Deferred<String> =  lifecycleScope.async {
                 val city = loadCity()
                 binding.tvLocation.text = city
+                city
             }
-            val jobTemp =  lifecycleScope.launch {
+            val deferredTemp : Deferred<Int> =  lifecycleScope.async {
                 val temp = loadTemperature()
                 binding.tvTemperature.text = temp.toString()
+                temp
             }
 
             lifecycleScope.launch {
-                jobCity.join()
-                jobTemp.join()
+                val city = deferredCity.await()
+                val temp = deferredTemp.await()
+                Toast.makeText(this@MainActivity,
+                    "City : $city, Temp : $temp",
+                    Toast.LENGTH_SHORT).show()
                 binding.progress.isVisible = false
                 binding.buttonLoad.isEnabled = true
             }
