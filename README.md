@@ -147,3 +147,104 @@ private fun observeViewModel(){
         }
 
     }
+	
+#14.5 Sealed Classes
+
+Теперь меняем State
+
+open class State()
+
+class Error : State()
+
+class Progress : State()
+
+class Result(val factorial : String) : State()
+
+ private fun observeViewModel(){
+        viewModel.state.observe(this){
+            binding.progressBarLoading.visibility = View.GONE
+            binding.buttonCalculate.isEnabled = true
+            when(it){
+                is Error -> {
+                    Toast.makeText(this,
+                        "You did not entered value",
+                        Toast.LENGTH_SHORT)
+                        .show()
+                }
+                is Progress ->{
+                    binding.progressBarLoading.visibility = View.VISIBLE
+                    binding.buttonCalculate.isEnabled = false
+                }
+
+                is Result -> {
+                    binding.textViewFactorial.text = it.factorial
+                }
+            }
+
+        }
+
+    }
+	
+	Sealed класс - это enum классов и всех наследников нужно определить, либо в этом же файле, либо в этом же пакете
+	И таким образом компилятор сможет отслеживать стейты при переборе в when. Появится предупреждение, что обработаны не все классы
+	
+	sealed class State()
+	
+	В результате
+	
+sealed class State()
+
+object Error : State()
+
+object Progress : State()
+
+class Result(val factorial : String) : State()
+
+class FactorialViewModel : ViewModel() {
+
+    private val _state = MutableLiveData<State>()
+
+    val state : LiveData<State>
+        get() = _state
+
+
+
+    fun calculate(value : String?){
+        _state.value = Progress
+        if(value.isNullOrBlank()){
+            _state.value = Error
+            return
+        }
+
+        viewModelScope.launch {
+            val number = value.toLong()
+            //calculate
+            delay(1000)
+            _state.value = Result(factorial = number.toString())
+        }
+
+    }
+}
+
+ private fun observeViewModel(){
+        viewModel.state.observe(this){
+            binding.progressBarLoading.visibility = View.GONE
+            binding.buttonCalculate.isEnabled = true
+            when(it){
+                is Error -> {
+                    Toast.makeText(this,
+                        "You did not entered value",
+                        Toast.LENGTH_SHORT)
+                        .show()
+                }
+                is Progress ->{
+                    binding.progressBarLoading.visibility = View.VISIBLE
+                    binding.buttonCalculate.isEnabled = false
+                }
+
+                is Result -> {
+                    binding.textViewFactorial.text = it.factorial
+                }
+            }
+        }
+    }
