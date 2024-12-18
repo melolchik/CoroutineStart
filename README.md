@@ -89,3 +89,5 @@ binding.buttonLoad.setOnClickListener {
                 binding.buttonLoad.isEnabled = true
             }
         }
+		
+#14.3 Создание приложения Factorial
