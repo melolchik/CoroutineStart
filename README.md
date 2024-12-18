@@ -91,3 +91,59 @@ binding.buttonLoad.setOnClickListener {
         }
 		
 #14.3 Создание приложения Factorial
+#14.4 Stateful ViewModel
+
+UDF архитектура - весь стейт ViewModel расположен в одном объекте
+
+class State( val isError : Boolean = false,
+    val isInProgress : Boolean = false,
+    val factorial : String = "" )
+	
+class FactorialViewModel : ViewModel() {
+
+    private val _state = MutableLiveData<State>()
+
+    val state : LiveData<State>
+        get() = _state
+
+
+
+    fun calculate(value : String?){
+        _state.value = State(isInProgress = true)
+        if(value.isNullOrBlank()){
+            _state.value = State(isInProgress = false, isError = true)
+            return
+        }
+
+        viewModelScope.launch {
+            val number = value.toLong()
+            //calculate
+            delay(1000)
+            _state.value = State(factorial = number.toString())
+        }
+
+
+    }
+}
+
+private fun observeViewModel(){
+        viewModel.state.observe(this){
+            if(it.isInProgress) {
+                binding.progressBarLoading.visibility = View.VISIBLE
+                binding.buttonCalculate.isEnabled = false
+            }else{
+                binding.progressBarLoading.visibility = View.GONE
+                binding.buttonCalculate.isEnabled = true
+            }
+
+            if(it.isError){
+                Toast.makeText(this,
+                    "You did not entered value",
+                    Toast.LENGTH_SHORT)
+                    .show()
+            }
+
+            binding.textViewFactorial.text = it.factorial
+        }
+
+    }

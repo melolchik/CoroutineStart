@@ -9,23 +9,17 @@ import kotlinx.coroutines.launch
 
 class FactorialViewModel : ViewModel() {
 
-    private val _error = MutableLiveData<Boolean>()
-    val error : LiveData<Boolean>
-        get() = _error
+    private val _state = MutableLiveData<State>()
 
-    private val _factorial = MutableLiveData<String>()
-    val factorial : LiveData<String>
-        get() = _factorial
+    val state : LiveData<State>
+        get() = _state
 
-    private val _progress = MutableLiveData<Boolean>()
-    val progress : LiveData<Boolean>
-        get() = _progress
+
 
     fun calculate(value : String?){
-        _progress.value = true
+        _state.value = State(isInProgress = true)
         if(value.isNullOrBlank()){
-            _error.value = true
-            _progress.value = false
+            _state.value = State(isInProgress = false, isError = true)
             return
         }
 
@@ -33,8 +27,7 @@ class FactorialViewModel : ViewModel() {
             val number = value.toLong()
             //calculate
             delay(1000)
-            _progress.value = false
-            _factorial.value = number.toString()
+            _state.value = State(factorial = number.toString())
         }
 
 
