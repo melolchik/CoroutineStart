@@ -6,4 +6,4 @@ object Error : State()
 
 object Progress : State()
 
-class Result(val factorial : String) : State()
+class Factorial(val factorial : String) : State()

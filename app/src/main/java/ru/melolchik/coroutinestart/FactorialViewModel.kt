@@ -4,21 +4,25 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.math.BigInteger
+import kotlin.concurrent.thread
+import kotlin.coroutines.suspendCoroutine
 
 class FactorialViewModel : ViewModel() {
 
     private val _state = MutableLiveData<State>()
 
-    val state : LiveData<State>
+    val state: LiveData<State>
         get() = _state
 
 
-
-    fun calculate(value : String?){
+    fun calculate(value: String?) {
         _state.value = Progress
-        if(value.isNullOrBlank()){
+        if (value.isNullOrBlank()) {
             _state.value = Error
             return
         }
@@ -27,8 +31,35 @@ class FactorialViewModel : ViewModel() {
             val number = value.toLong()
             //calculate
             delay(1000)
-            _state.value = Result(factorial = number.toString())
+            val result = factorial(number)
+            _state.value = Factorial(factorial = result)
         }
 
+    }
+
+    private suspend fun factorial(number: Long): String {
+
+        return suspendCoroutine {
+            thread {
+                var result = BigInteger.ONE
+                for (i in 1..number) {
+                    result = result.multiply(BigInteger.valueOf(i))
+                }
+                it.resumeWith(Result.success(result.toString()))
+
+            }
+        }
+
+    }
+
+    private suspend fun factorial2(number: Long): String {
+
+        return withContext(Dispatchers.Default) {
+            var result = BigInteger.ONE
+            for (i in 1..number) {
+                result = result.multiply(BigInteger.valueOf(i))
+            }
+            result.toString()
+        }
     }
 }

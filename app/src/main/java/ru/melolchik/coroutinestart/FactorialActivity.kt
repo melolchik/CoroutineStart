@@ -52,7 +52,7 @@ class FactorialActivity  : AppCompatActivity() {
                     binding.buttonCalculate.isEnabled = false
                 }
 
-                is Result -> {
+                is Factorial -> {
                     binding.textViewFactorial.text = it.factorial
                 }
             }

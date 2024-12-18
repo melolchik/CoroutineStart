@@ -248,3 +248,44 @@ class FactorialViewModel : ViewModel() {
             }
         }
     }
+	
+#14.6 WithContext and SuspendCoroutine
+Долгая операция должна выполняться в другом потоке
+private fun factorial(number : Long) : String{
+        var result = BigInteger.ONE
+        for(i in 1..number){
+            result = result.multiply(BigInteger.valueOf(i))
+        }
+        return result.toString()
+    }
+##Превый способ - метод с колбэком
+Если из метода нужно сделать suspend функцию нужно использовать suspendCoroutine, 
+который использует Continuation<T>. В него нужно передавать результат.
+
+private suspend fun factorial(number : Long) : String{
+
+        return suspendCoroutine {
+            thread {
+                var result = BigInteger.ONE
+                for(i in 1..number){
+                    result = result.multiply(BigInteger.valueOf(i))
+                }
+                it.resumeWith(Result.success(result.toString()))
+            }
+        }
+
+    }
+При ошибке в результат передают Result.failure<>()
+
+##Второй способ - если нужно просто переключить поток
+
+    private suspend fun factorial2(number: Long): String {
+
+        return withContext(Dispatchers.Default) {
+            var result = BigInteger.ONE            
+            for (i in 1..number) {
+                result = result.multiply(BigInteger.valueOf(i))
+            }
+            result.toString() //результат - последняя строка
+        }
+    }
