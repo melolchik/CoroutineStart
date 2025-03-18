@@ -438,3 +438,47 @@ private suspend fun factorial(number : Long) : String{
             result.toString() //результат - последняя строка
         }
     }
+	
+#14.7 CoroutineScope and CoroutineContext
+Переключение контекста очень удобная вещь и в рамках одного scope можно переключать контекст(поток) много раз 
+Например функция factorial не Suspend и находится в другой библиотеке
+
+ viewModelScope.launch {
+            val number = value.toLong()
+            //calculate
+            withContext(Dispatchers.Default) {
+                delay(1000)
+                val result = factorial(number)
+                withContext(Dispatchers.Main) {
+                    _state.value = Factorial(factorial = result)
+                }
+            }
+        }
+		
+Т.к. WithContext вовзвращает результат, можем упростить
+
+ viewModelScope.launch {
+			//главный 
+            val number = value.toLong()
+            //фоновый
+            val result = withContext(Dispatchers.Default) {
+                delay(1000)
+                factorial(number)
+			}
+            //главный
+            _state.value = Factorial(factorial = result)
+                
+            }
+        }		
+CoroutineScope - интерфейс, в котором одна переменная CoroutineContext
+CoroutineContext состоит из 4х элемнтов
+1)  Dispatcher - поток
+2) Job
+3) ExceptionHandler - обработка ошибок
+4) CoroutineName - имя
+
+Может использоваться один элемент или их сочетание через +
+CoroutineContext используется в 
+- WithContext
+- при создании CoroutineScope
+- в билдерах launch, async...
