@@ -3,7 +3,133 @@
 #8.2 Handler и Looper
 #8.3 Проблемы при стандартном подходе к асинхронному программированию
 #8.4 Введение в Kotlin Coroutines. Suspend функции
+
+lifecycleScope - используем, чтобы у запросов был жизненный цикл ( Когда активити умирает, то все запросы отменяются)
+Запускаем loadData внутри scope , который имеет ЖЦ
+ 
+ binding.buttonLoad.setOnClickListener {
+            lifecycleScope.launch {
+                loadData()
+            }
+
+        }
+Метод loadCity делаем прерываемым - метод прерывается и не блокирует основной поток
+private suspend fun loadCity(): String {
+        delay(5000)
+        return "Moscow"
+    }
+		
+тоже самое делаем со второй функцией
+private suspend fun loadTemperature(city: String): Int {
+
+        Toast.makeText(
+            this,
+            getString(R.string.loading_temperature_toast, city),
+            Toast.LENGTH_SHORT
+        ).show()
+        delay(5000)
+        return 17
+    }
+Suspend функция должна вызываться либо из корутины, либо из другой suspend функции
+Поэтому loadData также suspend
+private suspend fun loadData() {
+        Log.d("MainActivity", "Load started: $this")
+        binding.progress.isVisible = true
+        binding.buttonLoad.isEnabled = false
+		// прерываемый ,т.е. при вызове метода loadCity, мы вйдем из метода loadData до тех пор пока он не завершится, 
+		// и когда он завершится, мы вернёмся в этот метод к следующей строчке
+        val city = loadCity() 
+        binding.tvLocation.text = city
+        val temp = loadTemperature(city)
+        binding.tvTemperature.text = temp.toString()
+        binding.progress.isVisible = false
+        binding.buttonLoad.isEnabled = true
+        Log.d("MainActivity", "Load finished: $this")
+
+    
+	
 #8.5 Корутины "под капотом"
+
+все suspend функции - это функции с колбэками
+
+private suspend fun loadData() {
+//Первый блок
+        Log.d("MainActivity", "Load started: $this")
+        binding.progress.isVisible = true
+        binding.buttonLoad.isEnabled = false
+		// прерываемый ,т.е. при вызове метода loadCity, мы вйдем из метода loadData до тех пор пока он не завершится, 
+		// и когда он завершится, мы вернёмся в этот метод к следующей строчке
+        val city = loadCity() 
+//Второй блок		
+        binding.tvLocation.text = city
+        val temp = loadTemperature(city)
+//Третий блок		
+        binding.tvTemperature.text = temp.toString()
+        binding.progress.isVisible = false
+        binding.buttonLoad.isEnabled = true
+        Log.d("MainActivity", "Load finished: $this")
+}
+
+Напишем тот же метод без корутин
+
+private fun loadWithoutCoroutine(step: Int = 0, obj: Any? = null) {
+        when (step) {
+            0 -> {
+                Log.d("MainActivity", "Load started: $this")
+                binding.progress.isVisible = true
+                binding.buttonLoad.isEnabled = false
+                loadCityWithoutCoroutine {
+                    loadWithoutCoroutine(1, it)
+                }
+            }
+            1 -> {
+                val city = obj as String
+                binding.tvLocation.text = city
+                loadTemperatureWithoutCoroutine(city) {
+                    loadWithoutCoroutine(2, it)
+                }
+            }
+            2 -> {
+                val temp = obj as Int
+                binding.tvTemperature.text = temp.toString()
+                binding.progress.isVisible = false
+                binding.buttonLoad.isEnabled = true
+                Log.d("MainActivity", "Load finished: $this")
+            }
+        }
+    }
+	//метод с колбэком
+	  private fun loadCityWithoutCoroutine(callback: (String) -> Unit) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            callback.invoke("Moscow")
+        }, 5000)
+    }
+	//метод с колбэком
+	 private fun loadTemperatureWithoutCoroutine(city: String, callback: (Int) -> Unit) {
+        runOnUiThread {
+            Toast.makeText(
+                this,
+                getString(R.string.loading_temperature_toast, city),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            callback.invoke(17)
+        }, 5000)
+    }
+	Внутри корутин примерно тоже самое - так называемая стейт-машина с колбэками
+	
+	Suspend функции никогда не должны блокировать поток. Если пишем свою Suspend функцию, то сами должны заботиться о том, 
+	чтобы она не блокировала поток, модификатор suspend этого не делает
+	
+	Внутри активити используем lifecycleScope.launch
+	Внутри ViewModel можно создать scope и отменить в onCleared
+	private val scope = CoroutineScope(Dispatchers.Default)
+	override fon onCleared(){
+		super.onCleared()
+		scope.cancel()
+	}
+	А можно использовать viewModelScope + его не нужно явно отменять в onCleared
 
 #14.1 Job and Coroutine Builders
 
@@ -251,14 +377,36 @@ class FactorialViewModel : ViewModel() {
 	
 #14.6 WithContext and SuspendCoroutine
 Долгая операция должна выполняться в другом потоке
+Если нужно работать с большими числами нужно использовать BigInteger
+
 private fun factorial(number : Long) : String{
         var result = BigInteger.ONE
         for(i in 1..number){
             result = result.multiply(BigInteger.valueOf(i))
         }
         return result.toString()
-    }
-##Превый способ - метод с колбэком
+}
+    
+	
+fun calculate(value: String?) {
+        _state.value = Progress
+        if (value.isNullOrBlank()) {
+            _state.value = Error
+            return
+        }
+
+        viewModelScope.launch {
+            val number = value.toLong()
+            //calculate
+            delay(1000)
+            val result = factorial(number)
+            _state.value = Factorial(factorial = result)
+        }
+
+}
+	
+При больших числах функция выполняется долго и её нужно сделать прерываемой
+##Превый способ - метод с колбэком suspendCoroutine
 Если из метода нужно сделать suspend функцию нужно использовать suspendCoroutine, 
 который использует Continuation<T>. В него нужно передавать результат.
 
@@ -270,6 +418,7 @@ private suspend fun factorial(number : Long) : String{
                 for(i in 1..number){
                     result = result.multiply(BigInteger.valueOf(i))
                 }
+				//очень важно вызвать результат!!! иначе корутина не завершится и зависнет
                 it.resumeWith(Result.success(result.toString()))
             }
         }
