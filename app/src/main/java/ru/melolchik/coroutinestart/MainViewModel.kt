@@ -2,6 +2,7 @@ package ru.melolchik.coroutinestart
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,7 +13,10 @@ import kotlinx.coroutines.launch
 class MainViewModel : ViewModel() {
 
     private val parentJob = Job()
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob)
+    private val exceptionHandler = CoroutineExceptionHandler{
+        _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
+    }
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob + exceptionHandler)
     fun method(){
         val childJob1 = coroutineScope.launch {
             delay(3000)
@@ -22,8 +26,18 @@ class MainViewModel : ViewModel() {
             delay(2000)
             Log.d(LOG_TAG,"second coroutine finished")
         }
+
+        val childJob3 = coroutineScope.launch {
+            delay(1000)
+            error()
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
         Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString())
         Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())
+    }
+
+    private fun error(){
+        throw RuntimeException("Error")
     }
 
     override fun onCleared() {
