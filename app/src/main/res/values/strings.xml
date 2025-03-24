@@ -5,4 +5,9 @@
     <string name="temperature">Temperature:</string>
     <string name="loading_temperature_toast">Loading temperature for city: %s</string>
     <string name="calculate">Calculate</string>
+
+    <string name="add_user">Add user</string>
+    <string name="enter_username">Enter username:</string>
+    <string name="users_activity">Users Activity</string>
+    <string name="launch_next_screen">Launch next screen</string>
 </resources>

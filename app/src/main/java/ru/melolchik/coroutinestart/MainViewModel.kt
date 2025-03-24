@@ -13,8 +13,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -31,11 +34,20 @@ class MainViewModel : ViewModel() {
 
      fun method(){
          viewModelScope.launch {
-             val numbers = listOf(3, 4, 5, 98, 19, 48, 25, 32).asFlow()
-             numbers.filter { it.isPrime() }
+             getFlowByFlowBuilder().filter { it.isPrime() }
                  .filter { it < 20 }
-                 .collect { Log.d(LOG_TAG, it.toString()) }
+                 .collect { Log.d(LOG_TAG,"Output $it") }
          }
+    }
+
+    private fun getFlowByFlowBuilder() : Flow<Int>{
+        val numbers = listOf(1,5,9,12,38,46,54,99,111)
+        return flow {
+            for (i in numbers) {
+                this.emit(i)
+                Log.d(LOG_TAG, "Emitted $i")
+            }
+        }
     }
 
 

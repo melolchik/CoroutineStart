@@ -490,3 +490,87 @@ CoroutineContext используется в
 #14.10 Async vs Launch
 
 #14.11 Cancelling Coroutines
+
+Coroutine Flow
+
+#15.1 Введение в Coroutine Flow
+#15.2 Flow Builders
+ flowOf(1,3,5,6) --> Flow<Int> - создание потока аналогично созданию клллекции
+ Обычно asFlow и flowOf -  чаще всего используется в UnitTest
+ 
+ Более практичный
+ flow{
+ this.emit(1)
+ //здесь можно писать абслоютно любую логику
+ //внутри используется CoroutineContext поэтому можно использовать suspend функции
+ delay(900)
+ }
+ 
+В этот поток нельзя положить значения снаружи, можно промежуточные и терминальные
+
+Чистые корутины - императивный подходе
+Flow - реактивный подходе
+
+
+object UsersRepository {
+
+    private val users = mutableListOf("Nick", "John", "Max")
+
+    suspend fun addUser(user: String) {
+        delay(10)
+        users.add(user)
+    }
+
+    suspend fun loadUsers(): List<String> {
+        delay(10)
+        return users.toList()
+    }
+}
+
+class UsersViewModel : ViewModel() {
+
+    private val repository = UsersRepository
+
+    private val _users = MutableLiveData<List<String>>()
+    val users: LiveData<List<String>> = _users
+
+    init {
+        loadUsers()
+    }
+
+    fun addUser(user: String) {
+        viewModelScope.launch {
+            repository.addUser(user)
+        }
+    }
+
+//императивный подход - нет автоматического обновления данных и метод нужно вызывать при каждом обновлении списка
+    private fun loadUsers() {
+        viewModelScope.launch {
+            _users.value = repository.loadUsers()
+        }
+    }
+}
+
+
+Чистые корутины не поддерживают реактиный подход. Нельзя подписаться на коллекцию - нужно самим следить когда обновляются данные
+Проблемы автоматического обновления решаются с помощью flow & observer
+
+fun loadUsers(): Flow<List<String>> = flow {
+//пока делаем бесконечный цикл, чтобы emit происходил периодически 
+//плохое решение, но на текущем этапе его достаточно
+       while (true) {
+           emit(users.toList())
+           delay(500)
+       }
+    }	
+
+    private fun loadUsers() {
+        viewModelScope.launch {
+		//подписываемся на поток
+            repository.loadUsers().collect {
+                _users.value = it
+            }
+        }
+    }
+ 
