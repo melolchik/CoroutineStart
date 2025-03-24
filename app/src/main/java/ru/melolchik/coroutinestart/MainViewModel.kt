@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -34,19 +35,23 @@ class MainViewModel : ViewModel() {
 
      fun method(){
          viewModelScope.launch {
-             getFlowByFlowBuilder().filter { it.isPrime() }
+             getFlow().filter { it.isPrime() }
                  .filter { it < 20 }
                  .collect { Log.d(LOG_TAG,"Output $it") }
          }
     }
 
     private fun getFlowByFlowBuilder() : Flow<Int>{
-        val numbers = listOf(1,5,9,12,38,46,54,99,111)
+        return flowOf(1,5,9,12,38,46,54,99,111)
+    }
+
+    private fun getFlow() : Flow<Int>{
+        val first = getFlowByFlowBuilder()
         return flow {
-            for (i in numbers) {
-                this.emit(i)
-                Log.d(LOG_TAG, "Emitted $i")
-            }
+//            first.collect{
+//                emit(it)
+//            }
+            emitAll(first)
         }
     }
 
