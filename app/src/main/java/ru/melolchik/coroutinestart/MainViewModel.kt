@@ -6,13 +6,15 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainViewModel : ViewModel() {
 
-    private val parentJob = Job()
+    private val parentJob = SupervisorJob()
     private val exceptionHandler = CoroutineExceptionHandler{
         _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
     }
@@ -27,10 +29,13 @@ class MainViewModel : ViewModel() {
             Log.d(LOG_TAG,"second coroutine finished")
         }
 
-        val childJob3 = coroutineScope.launch {
+        val childJob3 = coroutineScope.async {
             delay(1000)
             error()
             Log.d(LOG_TAG,"second coroutine finished")
+        }
+        coroutineScope.launch {
+            childJob3.await()
         }
         Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString())
         Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())
