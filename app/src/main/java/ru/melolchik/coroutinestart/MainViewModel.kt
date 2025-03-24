@@ -2,6 +2,8 @@ package ru.melolchik.coroutinestart
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,45 +12,44 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainViewModel : ViewModel() {
-
-    private val parentJob = SupervisorJob()
     private val exceptionHandler = CoroutineExceptionHandler{
-        _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
+        _, throwable -> Log.d(LOG_TAG, "OnExceptionHandler $throwable")
+
     }
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob + exceptionHandler)
+
     fun method(){
-        val childJob1 = coroutineScope.launch {
+       val job =  viewModelScope.launch (Dispatchers.Default + exceptionHandler){
+        Log.d(LOG_TAG, "Started ")
+            val before = System.currentTimeMillis()
+            var count = 0
+            for (i in 0 until 100_000_000){
+                for (j in 0 until 100){
+//                    if(isActive) {
+//                        count++
+//                    }else{
+//                        throw CancellationException()
+//                    }
+                    ensureActive()
+                    count++
+                }
+            }
+            Log.d(LOG_TAG, "Finished ${System.currentTimeMillis() - before}")
+        }
+        job.invokeOnCompletion {
+            Log.d(LOG_TAG, "Coroutine was canceled $it")
+        }
+        viewModelScope.launch {
             delay(3000)
-            Log.d(LOG_TAG,"first coroutine finished")
-        }
-        val childJob2 = coroutineScope.launch {
-            delay(2000)
-            Log.d(LOG_TAG,"second coroutine finished")
-        }
+            job.cancel()
 
-        val childJob3 = coroutineScope.async {
-            delay(1000)
-            error()
-            Log.d(LOG_TAG,"second coroutine finished")
         }
-        coroutineScope.launch {
-            childJob3.await()
-        }
-        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString())
-        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())
     }
 
-    private fun error(){
-        throw RuntimeException("Error")
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        coroutineScope.cancel()
-    }
 
     companion object{
         private const val LOG_TAG = "MainViewModel"
