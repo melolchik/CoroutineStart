@@ -600,3 +600,36 @@ toList() - причём создаётся список после оконча�
 first() - после выполнения и получения первого элемента , корутина прерывается и эмитты не происходят
 last() - при бесконечном эмитте никогда не завершится
 }
+
+#15.4 Операторы жизненного цикла Flow
+
+ private fun loadData() {
+        viewModelScope.launch {
+         repository.getCurrencyList()//flow функция
+                .onStart {
+                    val currentState = _state.value
+                    if (currentState !is State.Content || currentState.currencyList.isEmpty()) {
+                        _state.value = State.Loading
+                    }
+                }
+                .onEach { _state.value = State.Content(currencyList = it) }
+                .collect()
+        }
+    }
+	
+А можно по другому передать в scope
+
+    private fun loadData() {
+
+        repository.getCurrencyList()
+            .onStart {
+                val currentState = _state.value
+                if (currentState !is State.Content || currentState.currencyList.isEmpty()) {
+                    _state.value = State.Loading
+                }
+            }
+            .onEach { _state.value = State.Content(currencyList = it) }
+            .launchIn(viewModelScope) - терминальная функция, которая является не suspend
+    }
+	
+	
