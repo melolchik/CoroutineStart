@@ -662,3 +662,115 @@ class CryptoViewModel : ViewModel() {
 
 }
 	
+	
+#15.6 
+Вернём код 
+fun loadData() {
+        repository.getCurrencyList()
+            .onStart {
+               _state.value = State.Loading
+            }
+            .onEach {
+                Log.d("CryptoViewModel","onEach" ) //добавим комментарий
+                _state.value = State.Content(currencyList = it) }
+            .launchIn(viewModelScope)
+    }
+	
+При сворачивании приложения загрузка не прекращается
+Немного перепишем
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val _state = MutableLiveData<State>(State.Initial)
+    val state: LiveData<State> = _state
+
+    private var job : Job? = null
+
+//    init {
+//        loadData()
+//    }
+
+    public fun loadData() {
+        job = repository.getCurrencyList()
+            .onStart {
+               _state.value = State.Loading
+            }
+            .onEach {
+                Log.d("CryptoViewModel","onEach" )
+                _state.value = State.Content(currencyList = it) }
+            .launchIn(viewModelScope)
+    }
+
+    fun stopLoading(){
+        job?.cancel()
+    }
+}
+
+Вызовем методы загрузки и отмены в OnResume и OnPause
+
+Тут есть минусы
+1) Добавление Jop
+2) Public методы + не забыть их вызывать в соотв.методах ЖЦ активити
+3) Progres показывается при старте
+4) При перевороте загрузка начинается занова
+
+
+onCompletion - цепочка завершается успешно или неуспешно
+
+Решение некоторых из проблем
+
+
+ fun getCurrencyList() = flow<List<Currency>> {
+        emit(currencyList.toList()) - эмитим начальное закешированное состояние
+        while (true) {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+            delay(3000)
+        }
+    }
+	
+	
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val _state = MutableLiveData<State>(State.Initial)
+    val state: LiveData<State> = _state
+
+    private var job : Job? = null
+    private var isResumed = false - не сразу отменяем загрузку данных, а с задержкой
+
+    public fun loadData() {
+        isResumed = true
+        if(job != null){
+            return
+        }
+        job = repository.getCurrencyList()
+            .onStart {
+               _state.value = State.Loading
+                Log.d("CryptoViewModel","onStart " )
+            }
+            .onEach {
+                Log.d("CryptoViewModel","onEach" )
+                _state.value = State.Content(currencyList = it) }
+            .onCompletion {
+                Log.d("CryptoViewModel","onCompletion $it" )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun stopLoading(){
+        viewModelScope.launch {
+            delay(5000)
+            if(!isResumed){
+                job?.cancel()
+                job = null
+            }else{
+                isResumed = false
+            }
+        }
+    }
+}
