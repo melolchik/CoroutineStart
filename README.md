@@ -778,3 +778,123 @@ class CryptoViewModel : ViewModel() {
 AsLiveData всё это обеспечивает
 - Если пользователь ушёл с экрана, загрузка приостанавливается через какой-то delay 
 Есть параметр timeout
+
+#15.7 Использование Flow на Ui-слое
+
+Предназначение LiveData такое же как Flow. Поэтому на flow можно подписываться на UI-слое и отказаться от доп.объекта LiveData
+Изменим возвращаемое значение на Flow
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+            emit(State.Loading)
+            Log.d("CryptoViewModel", "onStart ")
+        }
+        .onEach {
+            Log.d("CryptoViewModel", "onEach")
+            //_state.value = State.Content(currencyList = it)
+        }
+        .onCompletion {
+            Log.d("CryptoViewModel", "onCompletion $it")
+        }        
+
+
+}
+
+В активити
+
+ private fun observeData() {
+        lifecycleScope.launch {
+            viewModel.state.collect {
+                when (it) {
+                    is State.Initial -> {
+                        binding.progressBarLoading.isVisible = false
+                    }
+
+                    is State.Loading -> {
+                        binding.progressBarLoading.isVisible = true
+                    }
+
+                    is State.Content -> {
+                        binding.progressBarLoading.isVisible = false
+                        adapter.submitList(it.currencyList)
+                    }
+                }
+            }
+        }
+    }
+
+Но в таком виде данные обновляются в фоне
+Можно сохранить job и отменять его в onPause. Всё будет работать. Но при развороте экрана flow завершает работу. 
+При этом добавить таймер не получится. Активити при перевороте экрана уничтожается и скоуп завершит свою работу.
+Это будем решать в след.уроках
+Ок, но это решение с job неудобное. Есть другие способы
+
+1)#repeatOnLifecycle - flow завязан на lifecycle
+ private fun observeData() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) { 
+                viewModel.state.collect {
+                    when (it) {
+                        is State.Initial -> {
+                            binding.progressBarLoading.isVisible = false
+                        }
+
+                        is State.Loading -> {
+                            binding.progressBarLoading.isVisible = true
+                        }
+
+                        is State.Content -> {
+                            binding.progressBarLoading.isVisible = false
+                            adapter.submitList(it.currencyList)
+                        }
+                    }
+                }
+            }
+        }
+    }
+	
+2)flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
+ private fun observeData() {
+        lifecycleScope.launch {            
+            viewModel.state
+                .flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
+                .collect {
+                when (it) {
+                    is State.Initial -> {
+                        binding.progressBarLoading.isVisible = false
+                    }
+
+                    is State.Loading -> {
+                        binding.progressBarLoading.isVisible = true
+                    }
+
+                    is State.Content -> {
+                        binding.progressBarLoading.isVisible = false
+                        adapter.submitList(it.currencyList)
+                    }
+                }
+            }
+        }
+    }
+	
+	У этих двух способов есть одно отличие 
+	flowWithLifecycle применяется к тому flow, который находится выше него - UPSTREAM
+	
+	пример
+	
+	viewModel.state
+                .flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
+                .transform {
+                    Log.d("CryptoViewModel", "transform")
+                    delay(10_000)
+                    emit(it)
+                }
+				
+	transform - будет выполнятся не смотря на то,что flow выше будет отменён
+3) launchWhenResumed и прочие являются небезопасными и не рекомендуются
