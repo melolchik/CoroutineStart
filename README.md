@@ -632,4 +632,33 @@ last() - при бесконечном эмитте никогда не заве
             .launchIn(viewModelScope) - терминальная функция, которая является не suspend
     }
 	
+#15.5 Map Flow to LiveData
+
+Предыдущий срлслб упрощаем  Flow<List<Currency>> map to Flow<State> В onStart можно эмиттить данные
+ private fun loadData() {
+
+        repository.getCurrencyList()
+            .filter { it.isNotEmpty() }
+            .map { State.Content(currencyList = it) as State }
+            .onStart {
+                emit(State.Loading)
+            }
+            .onEach { _state.value = it }
+            .launchIn(viewModelScope)
+    }
+	
+!!!Ещё упрощаем
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    val state: LiveData<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(currencyList = it) as State }
+        .onStart {
+            emit(State.Loading)
+        }
+        .asLiveData() - просто превращаем в LiveData
+
+}
 	
