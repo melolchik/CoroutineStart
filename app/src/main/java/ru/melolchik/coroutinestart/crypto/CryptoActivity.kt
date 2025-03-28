@@ -54,15 +54,6 @@ class CryptoActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        viewModel.loadData()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        viewModel.stopLoading()
-    }
 
     companion object {
 
