@@ -483,12 +483,214 @@ CoroutineContext используется в
 - при создании CoroutineScope
 - в билдерах launch, async...
 
-#14.8 Structured Concurrency
+#14.8 Structured Concurrency 
+Набор правил, которые используются при работе с корутинами
+1) Каждая корутина должна быть запущена внутри скоупа, с каим-нибудь ж.ц.
+2) Все корутины запускаются в виде иерархии объектов Job
+
+Corutine Scope 
+
+- Dispatcher
+- Job
+- Coroutine Name
+- Exception Handler
+
+Job - находится на вершине иерархии
+
+       Job*
+	/		\
+childJob1  childeJob2 - ДРЕВОВИДНАЯ СТРУКТУРА
+
+class MainViewModel : ViewModel() {
+
+    private val parentJob = Job()
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob)
+    fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished")
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString()) - #TRUE
+        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())	#TRUE
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        coroutineScope.cancel()
+    }
+
+    companion object{
+        private const val LOG_TAG = "MainViewModel"
+    }
+}
+
+3) Пока дочерние Job-ы не завершили свою работу, родительская Job будет активной и не будет закрыта isActive = true
+
+ fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished")
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+		
+		thread{
+			Tread.sleep(1000)
+			Log.d(LOG_TAG,"Parent job is Active ${parentJob.isActive()}") - #TRUE
+		}
+        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString()) - #TRUE
+        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())	#TRUE
+    }
+4) Поведение корутин при отмене корутин - Если родительская корутина отменяется - отменяются и дочернии. Но не НАОБОРОТ -
+ если отменяется дочерняя, родительская и все остальные будут работать
+ 
+  fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished") // Лог не будет выведен
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished") // Лог не будет выведен
+        }
+		
+		thread{
+			Tread.sleep(1000)
+			parentJob.cancel() // отменяем родительскую
+			Log.d(LOG_TAG,"Parent job is Active ${parentJob.isActive()}") //FALSE
+		}
+        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString()) - #TRUE
+        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())	#TRUE
+    }
+5) в следующем разделе
 
 #14.9 Exception Handling
 
+Исключения 
+Добавим третью корутину с Exception
+
+ fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished")
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+
+        val childJob3 = coroutineScope.launch {
+            delay(1000)
+            error() #!!!
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString())
+        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())
+    }
+  private fun error(){
+        throw RuntimeException("Error")
+    }
+	
+	При запуске такое приложение упадёт, т.к. нет обработчика ошибок
+	
+	Если обернуть корутину 3 в try..catch - это не поможет, поэтому это не имеет смысла.Если корутина вызывает исключение, то это проблема корутины
+	Если нужно поймать исключение - то нужно именно этот участок внутри корутины обернуть в try..catch
+	Но есть и другой способ
+	Создадим
+	private val exceptionHandler = CoroutineExceptionHandler{
+        _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
+    }
+	и передаём его в скоуп
+	 private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob + exceptionHandler)
+	 
+	 Далее, зпускем
+	 Выведется лог CoroutineExceptionHandler catch RuntimeException
+	 Больше никакие логи о завершении корутин не выводятся. Вывод. Исключение произошло в корутине 3, при этом родительская корутина сумела оьработать это исключение
+	 
+	Отсюда мы видим, что дочерние корутины передают исключения вверх по иерархии своим родительским корутинам
+	
+				 /-->  Job*
+				/	/		\
+		 /-------> Job  	Job
+		/		/
+Exception	Job
+
+    И это правило 5 из Structured Concurrency : Если в какой-то из Job произошло исключение, то это исключение передаётся вверх по иерархии
+	И если родительская корутина не умеет обрабатывать исключения, то будет краш, но если передать ExceptionHandler, то оно будет обработано там
+	И второе - если произошло исключение в какой-то корутине, то все остальные корутины, запущенные в том же скоупе будут отменены.
+	Это не всегда так.
+	
+	
 #14.10 Async vs Launch
 
+Заменим третью корутину на Async
+
+class MainViewModel : ViewModel() {
+
+    private val parentJob = Job()
+    private val exceptionHandler = CoroutineExceptionHandler{
+        _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
+    }
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob + exceptionHandler)
+    fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished")
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+
+        val childJob3 = coroutineScope.async {
+            delay(1000)
+            error()
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+        
+        Log.d(LOG_TAG,parentJob.children.contains(childJob1).toString())
+        Log.d(LOG_TAG,parentJob.children.contains(childJob2).toString())
+    }
+	
+При запуске приложение не падат и в лог ничего не выводит. Т.е. все корутины отменены, но ExceptionHandler не поймал Exception
+Дело в том, что при вызове async исключение сохраняется в объекте Deferred!!и его не будет ловить ExceptionHandler
+
+Сделаем следующее. Вернём launch а async  добавим внутрь. Уберём обработчки ExceptionHandler
+
+
+val childJob3 = coroutineScope.launch {
+			async{
+				delay(1000)
+				error()
+				Log.d(LOG_TAG,"second coroutine finished")
+			}
+        }
+
+Кажется, что исключение должно попасть в Deferred,но в данном случае приложение падает.
+Здесь получается внутри корутины launch произошло исключение и оно пошло вверх по иерархии
+
+Если сделать так
+val childJob3 = coroutineScope.async {
+			async{
+				delay(1000)
+				error()
+				Log.d(LOG_TAG,"second coroutine finished")
+			}
+        }
+		то исключение внутри async попадет в объект Deferred и не пойдёт вверх по иерархии
+		
+		Но исключение никуда не девается. Если сделаем так
+CoroutineScope.launch{
+	childeJob3.await() - этот метод бросит исключение, его можно обернуть здесь в try..catch
+	}
+	то исключение уйдёт на обработку в ExceptionHandler
+		
 #14.11 Cancelling Coroutines
 
 Coroutine Flow
