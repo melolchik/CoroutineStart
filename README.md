@@ -685,11 +685,49 @@ val childJob3 = coroutineScope.async {
         }
 		то исключение внутри async попадет в объект Deferred и не пойдёт вверх по иерархии
 		
-		Но исключение никуда не девается. Если сделаем так
-CoroutineScope.launch{
-	childeJob3.await() - этот метод бросит исключение, его можно обернуть здесь в try..catch
+Но исключение никуда не девается. Если сделаем так
+	CoroutineScope.launch{
+		childeJob3.await() - этот метод бросит исключение, его можно обернуть здесь в try..catch
 	}
 	то исключение уйдёт на обработку в ExceptionHandler
+	
+	#SupervisorJob
+	
+	private val parentJob = SupervisorJob()
+    private val exceptionHandler = CoroutineExceptionHandler{
+        _, throwable -> Log.d(LOG_TAG,"CoroutineExceptionHandler catch $throwable")
+    }
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + parentJob + exceptionHandler
+	
+	 fun method(){
+        val childJob1 = coroutineScope.launch {
+            delay(3000)
+            Log.d(LOG_TAG,"first coroutine finished")
+        }
+        val childJob2 = coroutineScope.launch {
+            delay(2000)
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+
+        val childJob3 = coroutineScope.async {
+            delay(1000)
+            error()
+            Log.d(LOG_TAG,"second coroutine finished")
+        }
+        coroutineScope.launch {
+			try{
+				childJob3.await()
+			}catch(ex : Exception){
+			}
+        }
+    }
+
+           ru.melolchik.coroutinestart          D  CoroutineExceptionHandler catch java.lang.RuntimeException: Error
+           ru.melolchik.coroutinestart          D  second coroutine finished
+           ru.melolchik.coroutinestart          D  first coroutine finished
+	В случае исключения (или отмены) одной корутины ,остальные корутины продолжают работать. При этом ExceptionHandler работает также.
+	
+	viewModelScope как раз использует SupervisorJob + Dispatcher.Main и автоматические отменяется в функции onCleared!
 		
 #14.11 Cancelling Coroutines
 
