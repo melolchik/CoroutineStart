@@ -731,6 +731,75 @@ val childJob3 = coroutineScope.async {
 		
 #14.11 Cancelling Coroutines
 
+
+fun method(){
+       val job =  viewModelScope.launch (Dispatchers.Default + exceptionHandler){
+        Log.d(LOG_TAG, "Started ")
+            val before = System.currentTimeMillis()
+            var count = 0
+            for (i in 0 until 100_000_000){
+                for (j in 0 until 100){
+                    count++
+                }
+            }
+            Log.d(LOG_TAG, "Finished ${System.currentTimeMillis() - before}")
+        }
+		//слушатель на завершение работы
+        job.invokeOnCompletion {
+            Log.d(LOG_TAG, "Coroutine was canceled $it")
+        }
+		//Метод выполняется около 10 сек.Отменим корутину через 3 сек 
+        viewModelScope.launch {
+            delay(3000)
+            job.cancel()
+
+        }
+    
+	Логи такие
+  Started 
+  Finished 10172 - корутина закончила действие через 10 сек( хотя была отменена через 3) и только потом стала отменена
+  Coroutine was canceled kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelled}@27fda12
+  
+  Логика аналогична потокам и методу intrrupt(), который не останавливает поток, а только меняет его флаг isInterrupted
+  Если вызвать cancel, он не останавливает выполнение корутины, только устанавливает флаг isActive в false
+  
+   fun method(){
+       val job =  viewModelScope.launch (Dispatchers.Default + exceptionHandler){
+        Log.d(LOG_TAG, "Started ")
+            val before = System.currentTimeMillis()
+            var count = 0
+            for (i in 0 until 100_000_000){
+                for (j in 0 until 100){
+                    if(isActive) {
+                        count++
+                    }else{
+                        throw CancellationException - особый вид исключений в корутинах, который не нужно обрабатывать в ExceptionHandler, 
+						его не нужно обрабатывать в try catch, он не крашит приложение
+						//Он говорит о том, что корутина была отменена
+                    }
+//                    ensureActive()
+                    count++
+                }
+            }
+            Log.d(LOG_TAG, "Finished ${System.currentTimeMillis() - before}")
+        }
+        job.invokeOnCompletion {
+            Log.d(LOG_TAG, "Coroutine was canceled $it")
+        }
+        viewModelScope.launch {
+            delay(3000)
+            job.cancel()
+
+        }
+    }
+Итог
+ Started 
+ Coroutine was canceled kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelled}@4ec23ad
+ 
+ Стандартные функции обрабатывают isActive, напрмер delay() и вместо проверки можно использовать ensureActive()
+
+
+
 Coroutine Flow
 
 #15.1 Введение в Coroutine Flow
