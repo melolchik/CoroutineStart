@@ -802,9 +802,47 @@ fun method(){
 
 Coroutine Flow
 
-#15.1 Введение в Coroutine Flow
+#15.1 Введение в Coroutine 
+Список не является потоком данных. Данные преобразуются в цикле.
+В потоке данные преобразуются по очереди.
+Поток выполняет работу только при наличии терминального оператора
+Промежуточные и терминальные операторы
+asSequence() - является потоком данных, НО НЕ ПОДДЕРЖИВАЮТ АСИНХРОНННУЮ ОБРАБОТКУ, т.е. нельзя использовать с корутинами
+Пример:
+Следующий код не допустим
+
+fun method(){
+         viewModelScope.launch {
+             val numbers = listOf(3, 4, 5, 98, 19, 48, 25, 32).asSequence()
+             numbers.filter { it.isPrime() }
+                 .filter { it < 20 }
+                 .forEach { Log.d(LOG_TAG, it.toString()) }
+         }
+    }
+	
+	
+suspend fun Int.isPrime() : Boolean{
+    if(this <= 1) return false
+    for(i in 2 .. this/2){
+        delay(50)
+        if(this % i == 0) return false
+    }
+    return true
+}
+
+Поэтому используют FLOW
+
+fun method(){
+         viewModelScope.launch {
+             val numbers = listOf(3, 4, 5, 98, 19, 48, 25, 32).asFlow() - flow builder
+             numbers.filter { it.isPrime() }
+                 .filter { it < 20 }
+                 .collect { Log.d(LOG_TAG, it.toString()) } - аналог forEach для Sequence
+         }
+    }
+	
 #15.2 Flow Builders
- flowOf(1,3,5,6) --> Flow<Int> - создание потока аналогично созданию клллекции
+ flowOf(1,3,5,6) --> Flow<Int> - создание потока аналогично созданию коллекции
  Обычно asFlow и flowOf -  чаще всего используется в UnitTest
  
  Более практичный
@@ -912,51 +950,196 @@ last() - при бесконечном эмитте никогда не заве
 
 #15.4 Операторы жизненного цикла Flow
 
+Первоначальная инициализация для работы с приложением криптовалют
+Добавляем CryptoActivity, CryptoAdapter 
+
+object CryptoRepository {
+
+    private val currencyNames = listOf("BTC", "ETH", "USDT", "BNB", "USDC")
+    private val currencyList = mutableListOf<Currency>()
+
+    fun getCurrencyList() = List<Currency> {
+      
+        delay(3000) - эмитация длительной загрузки
+        generateCurrencyList()
+        return currencyList.toList()            
+       
+    }
+
+    private fun generateCurrencyList() {
+        val prices = buildList {
+            repeat(currencyNames.size) {
+                add(Random.nextInt(1000, 2000))
+            }
+        }
+        val newData = buildList {
+            for ((index, currencyName) in currencyNames.withIndex()) {
+                val price = prices[index]
+                val currency = Currency(name = currencyName, price = price)
+                add(currency)
+            }
+        }
+        currencyList.clear()
+        currencyList.addAll(newData)
+    }
+}
+
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val _state = MutableLiveData<State>(State.Initial)
+    val state: LiveData<State> = _state
+
+    init {
+        loadData()
+    }
+
+    private fun loadData() {
+	
+		viewModelScope.launch{
+		
+		val currentState = _state.value
+		if(currentState !is State.Content || currentState.currencyList.isEmpty()){
+			_state.value = State.Loading
+		}
+		val currencyList = repository.getCurrencyList()
+		_state.value = State.Content(currencyList = currencyList)
+		delay(3000) - таймаут между обновлениями данных	
+		}
+	}
+}
+
+Здесь мы используем императивный подход, эта проблема решается с использованием реактивного подхода и Flow
+
+Меняем репозиторий и viewModel
+
+object CryptoRepository {
+
+    private val currencyNames = listOf("BTC", "ETH", "USDT", "BNB", "USDC")
+    private val currencyList = mutableListOf<Currency>()
+
+    fun getCurrencyList() = flow<List<Currency>> {
+        while (true) {
+            delay(3000) - эмитация долгой загрузки
+            generateCurrencyList()
+            emit(currencyList.toList())
+            delay(3000) - таймаут для обновлений 3 сек
+        }
+    }
+	....
+}
+
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val _state = MutableLiveData<State>(State.Initial)
+    val state: LiveData<State> = _state
+
+    init {
+        loadData()
+    }
+
+    private fun loadData() {
+	
+		viewModelScope.launch{
+		
+			val currentState = _state.value
+			if(currentState !is State.Content || currentState.currencyList.isEmpty()){
+				_state.value = State.Loading
+			}
+			repository.getCurrencyList().collect{
+				_state.value = State.Content(currencyList = it)
+			}
+		
+		}
+	}
+}
+
+....
+Теперь рассмотрим другие операторы flow
  private fun loadData() {
         viewModelScope.launch {
          repository.getCurrencyList()//flow функция
-                .onStart {
+                .onStart { - реакция на подписку, перед тем как прилетят первые данные
                     val currentState = _state.value
                     if (currentState !is State.Content || currentState.currencyList.isEmpty()) {
                         _state.value = State.Loading
                     }
                 }
-                .onEach { _state.value = State.Content(currencyList = it) }
+                .onEach { _state.value = State.Content(currencyList = it) } - можно реагировать на каждый эммит
                 .collect()
         }
     }
 	
-А можно по другому передать в scope
+А можно по другому передать в scope. Это более читаемый вариант
 
     private fun loadData() {
 
         repository.getCurrencyList()
-            .onStart {
+            .onStart { - реакция на подписку, перед тем как прилетят первые данные
                 val currentState = _state.value
                 if (currentState !is State.Content || currentState.currencyList.isEmpty()) {
                     _state.value = State.Loading
                 }
             }
-            .onEach { _state.value = State.Content(currencyList = it) }
-            .launchIn(viewModelScope) - терминальная функция, которая является не suspend
+            .onEach { _state.value = State.Content(currencyList = it) } - можно реагировать на каждый эммит
+            .launchIn(viewModelScope) - терминальный оператор, которая является НЕ suspend функцией, т.е. это исключение из правил терминальных операторов - 
+			под капотом он вызывает launch и пустой метод collect!, т.е. тоже самое, что мы делали до этого
     }
 	
 #15.5 Map Flow to LiveData
 
-Предыдущий срлслб упрощаем  Flow<List<Currency>> map to Flow<State> В onStart можно эмиттить данные
+.onStart { - реакция на подписку, перед тем как прилетят первые данные
+                val currentState = _state.value
+                if (currentState !is State.Content || currentState.currencyList.isEmpty()) {
+                    _state.value = State.Loading
+                }
+            }
+можно упростить, т.к. он вызывается при подписке и никакого _state изначально нет, его можно сразу установить в Loading
+
  private fun loadData() {
 
         repository.getCurrencyList()
+            .onStart {
+                _state.value = State.Loading
+                
+            }
+            .onEach { _state.value = State.Content(currencyList = it) } 
+            .launchIn(viewModelScope)
+    }
+В текущей версии установка state происходит в двух местах. Было бы лучше, если бы это было одно место
+Лямбда внутри функции onStart является FlowCollector<List<Currency>> тоже что и внутри flow{}, поэтому здесь мы можем эмиттить значения
+	
+Преобразуем  Flow<List<Currency>> в Flow<State> используя map
+
+ private fun loadData() {
+        repository.getCurrencyList()
             .filter { it.isNotEmpty() }
-            .map { State.Content(currencyList = it) as State }
+            .map { State.Content(currencyList = it) as State } - преобразование коллекции в объект State - as State обязательно, чтобы передавать любой State
             .onStart {
                 emit(State.Loading)
             }
-            .onEach { _state.value = it }
+            .onEach { _state.value = it } - установка в LiveData
             .launchIn(viewModelScope)
     }
 	
-!!!Ещё упрощаем
+!!!Ещё упрощаем. Если присмотреться LiveData и Flow делают одинаковые действия. И сейчас сделаем преобразование flow в LiveData:
+
+ private fun loadData() {
+        repository.getCurrencyList()
+            .filter { it.isNotEmpty() }
+            .map { State.Content(currencyList = it) as State } - преобразование коллекции в объект State - as State обязательно, чтобы передавать любой State
+            .onStart {
+                emit(State.Loading)
+            }
+            .onEach { _state.value = it } - установка в LiveData
+            .asLiveData() - просто превращаем в LiveData
+    }
+	Итого, убираем всё лишнее
 class CryptoViewModel : ViewModel() {
 
     private val repository = CryptoRepository
