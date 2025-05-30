@@ -45,7 +45,7 @@ class CryptoActivity : AppCompatActivity() {
     }
 
     private fun observeData() {
-        lifecycleScope.launchWhenResumed {
+        lifecycleScope.launch {
             viewModel.state
                 .flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
                 .transform {
