@@ -1397,3 +1397,119 @@ class CryptoViewModel : ViewModel() {
 				
 	transform - будет выполнятся не смотря на то,что flow выше будет отменён
 3) launchWhenResumed и прочие являются небезопасными и не рекомендуются
+
+
+15.8 Холодные Flow
+
+suspend fun main(){
+
+    val flow = getFlow()
+
+    flow.collect{
+        println(it)
+    }
+}
+
+fun getFlow() : Flow<Int> = flow {
+    repeat(100){
+        println("Emitted: $it")
+        emit(it)
+        delay(1000)
+    }
+}
+
+Что произойдёт, если у flow дважды вызвать collect?
+
+suspend fun main(){
+
+    val flow = getFlow()
+
+    flow.collect{
+        println(it)
+    }
+	
+	flow.collect{
+        println(it)
+    }
+}
+
+Второй collect начнёт выполнятся только после полного выполнения первого
+
+Emitted: 0
+collect 1st: 0
+Emitted: 1
+collect 1st: 1
+Emitted: 2
+collect 1st: 2
+Emitted: 3
+collect 1st: 3
+Emitted: 4
+collect 1st: 4
+Emitted: 0
+collect 2nd: 0
+Emitted: 1
+collect 2nd: 1
+Emitted: 2
+collect 2nd: 2
+Emitted: 3
+collect 2nd: 3
+Emitted: 4
+collect 2nd: 4
+
+Чтобы оба метода выполнялись одновременно их нужно запустить в разных коррутинах
+
+val coroutineScope = CoroutineScope(Dispatchers.IO)
+suspend fun main(){
+
+    
+    val flow = getFlow()
+    
+    val job1 = coroutineScope.launch {
+        flow.collect {
+            println("collect 1st: $it")
+        }
+    }
+    val job2 = coroutineScope.launch {
+        flow.collect {
+            println("collect 2nd: $it")
+        }
+    }
+    
+    job1.join()
+    job2.join()
+}
+
+Без join ничего выводиться не будет. Т.к. основной поток завершится и потянет за собой доп.корутины. 
+Особенность реализации корутин - когда главный поток завершил свою работу, то все корутины отменяются. Под копотом диспатчеры используют потоки - демоны
+
+
+Emitted: 0
+Emitted: 0
+collect 1st: 0
+collect 2nd: 0
+Emitted: 1
+collect 1st: 1
+Emitted: 1
+collect 2nd: 1
+Emitted: 2
+collect 2nd: 2
+Emitted: 2
+collect 1st: 2
+Emitted: 3
+Emitted: 3
+collect 2nd: 3
+collect 1st: 3
+Emitted: 4
+collect 2nd: 4
+Emitted: 4
+collect 1st: 4
+
+Process finished with exit code 0
+Корутины выполняются параллельно и главный поток ждёт их завершения
+
+Холодные поток. Особенности
+1) Они не эмиттят данные , пока на них не подпишутся. Пока не будет вызван терминальный оператор
+
+2) На каждую подписку создаётся новый flow - новый поток данных
+Если поставить delay(5000) между корутинами, вторая подписка начнётся также с 0 
+3) Если какому-то коллетору данные больше не нужны , то и поток прекратит своё выполнение . Пример : first

@@ -48,11 +48,6 @@ class CryptoActivity : AppCompatActivity() {
         lifecycleScope.launch {
             viewModel.state
                 .flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
-                .transform {
-                    Log.d("CryptoViewModel", "transform")
-                    delay(10_000)
-                    emit(it)
-                }
                 .collect {
                 when (it) {
                     is State.Initial -> {
