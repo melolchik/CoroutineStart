@@ -57,15 +57,18 @@ class CryptoActivity : AppCompatActivity() {
                         when (it) {
                             is State.Initial -> {
                                 binding.progressBarLoading.isVisible = false
+                                binding.refreshButton.isEnabled = false
                             }
 
                             is State.Loading -> {
                                 binding.progressBarLoading.isVisible = true
+                                binding.refreshButton.isEnabled = false
                             }
 
                             is State.Content -> {
                                 binding.progressBarLoading.isVisible = false
                                 adapter.submitList(it.currencyList)
+                                binding.refreshButton.isEnabled = true
                             }
                         }
                     }

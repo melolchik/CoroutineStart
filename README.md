@@ -1786,3 +1786,121 @@ class CryptoViewModel : ViewModel() {
 1) SharedMutableFlow как список, в который эмитим обновлённый список
 2) Когда SharedFlow используем как конрейнер для эвента обновления списка. 
 И в холодном потоке на него подписываемся и делаем определённые действия, в данном случае обновляем список
+
+
+#15.11 Промежуточные и кастомные операторы
+
+Какие сейчас есть проблемы в приложении:
+1) Нет прогресс-бара при обновлении списка
+2) Кликать можем сколько угодно по кнопке Refresh - нужно дизейблить в момент загрузки
+
+Обновим состояние кнопки в активити
+
+ private fun observeData() {
+        lifecycleScope.launch {
+
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.state
+                    .collect {
+                        when (it) {
+                            is State.Initial -> {
+                                binding.progressBarLoading.isVisible = false
+                                binding.refreshButton.isEnabled = false
+                            }
+
+                            is State.Loading -> {
+                                binding.progressBarLoading.isVisible = true
+                                binding.refreshButton.isEnabled = false
+                            }
+
+                            is State.Content -> {
+                                binding.progressBarLoading.isVisible = false
+                                adapter.submitList(it.currencyList)
+                                binding.refreshButton.isEnabled = true
+                            }
+                        }
+                    }
+            }
+        }
+    }
+	
+	Теперь нужно чтобы при повторной загрузке State менялся на Loading
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+            emit(State.Loading)
+        }
+
+    fun refreshList() {
+        viewModelScope.launch {
+            repository.refreshList()
+        }
+    }
+
+}
+
+При клике на кнопку, должно прилетать состояние Loading, но у нас flow холодный, в него не заэмиттить значение, поэтому создаём новый flow внутрь ViewModel, 
+который будет содержать состояние загрузки
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+    
+    private val loadingFlow = MutableSharedFlow<State>()
+
+   .....
+
+    fun refreshList() {
+        
+        viewModelScope.launch {
+            loadingFlow.emit(State.Loading)
+            repository.refreshList()
+        }
+    }
+}
+
+Теперь у нас два flow меняющих состояние, тепепрь в активити нужно реагировать на оба. Для этого используем merge. Но merge не функция Flow 
+
+Поэтому напишем расширение 
+ fun <T> Flow<T>.mergeWith(otherFlow : Flow<T>) : Flow<T>{
+        return merge(this,otherFlow)
+    }
+	
+Итог:
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val loadingFlow = MutableSharedFlow<State>()
+
+    val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+
+    fun <T> Flow<T>.mergeWith(otherFlow : Flow<T>) : Flow<T>{
+        return merge(this,otherFlow)
+    }
+
+    fun refreshList() {
+
+        viewModelScope.launch {
+            loadingFlow.emit(State.Loading)
+            repository.refreshList()
+        }
+    }
+
+}
+
+
+https://flowmarbles.com/ - операторы Kotlin Flow
