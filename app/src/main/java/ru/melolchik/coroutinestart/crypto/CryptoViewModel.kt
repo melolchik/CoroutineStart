@@ -27,15 +27,12 @@ class CryptoViewModel : ViewModel() {
         .map { State.Content(it) as State }
         .onStart {
             emit(State.Loading)
-            Log.d("CryptoViewModel", "onStart ")
-        }
-        .onEach {
-            Log.d("CryptoViewModel", "onEach")
-            //_state.value = State.Content(currencyList = it)
-        }
-        .onCompletion {
-            Log.d("CryptoViewModel", "onCompletion $it")
         }
 
+    fun refreshList() {
+        viewModelScope.launch {
+            repository.refreshList()
+        }
+    }
 
 }

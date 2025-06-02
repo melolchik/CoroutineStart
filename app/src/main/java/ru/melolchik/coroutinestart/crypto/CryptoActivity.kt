@@ -14,6 +14,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.launch
@@ -42,27 +43,32 @@ class CryptoActivity : AppCompatActivity() {
         }
         binding.recyclerViewCurrencyPriceList.adapter = adapter
         observeData()
+        binding.refreshButton.setOnClickListener {
+            viewModel.refreshList()
+        }
     }
 
     private fun observeData() {
         lifecycleScope.launch {
-            viewModel.state
-                .flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
-                .collect {
-                when (it) {
-                    is State.Initial -> {
-                        binding.progressBarLoading.isVisible = false
-                    }
 
-                    is State.Loading -> {
-                        binding.progressBarLoading.isVisible = true
-                    }
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.state
+                    .collect {
+                        when (it) {
+                            is State.Initial -> {
+                                binding.progressBarLoading.isVisible = false
+                            }
 
-                    is State.Content -> {
-                        binding.progressBarLoading.isVisible = false
-                        adapter.submitList(it.currencyList)
+                            is State.Loading -> {
+                                binding.progressBarLoading.isVisible = true
+                            }
+
+                            is State.Content -> {
+                                binding.progressBarLoading.isVisible = false
+                                adapter.submitList(it.currencyList)
+                            }
+                        }
                     }
-                }
             }
         }
     }

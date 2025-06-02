@@ -1623,3 +1623,166 @@ collect 2nd: 8
 2) Подписчики получают одни и те же элементы - ОДИН поток данных
 3) Когда подписчикам больше не нужны данные, flow продолжает работать
 4) Когда в потоке больше нет данных, flow не завершается никогда
+
+#15.10 Практика MutableSharedFlow
+
+Рассмотрим CryptoActivity 
+- уберём бесконечное обновление данных и добавим кнопку Refresh
+- удаляем бесконечный цикл
+
+fun getCurrencyList() = flow<List<Currency>> {
+        emit(currencyList.toList())
+        while (true) {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+            delay(3000)
+        }
+    }
+	
+	меняем на
+  fun getCurrencyList() = flow<List<Currency>> {       
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())   
+    }
+	
+	Теперь обновление нужно повестить на кнопку Refresh
+	Один из способов создать SharedFlow со списком валют
+	
+	object CryptoRepository {
+
+    ...........
+
+    val currencySharedFlow = MutableSharedFlow<List<Currency>>()
+    suspend fun loadData(){
+            delay(3000)
+            generateCurrencyList()
+            currencySharedFlow.emit(currencyList.toList())
+    }
+
+    private fun generateCurrencyList()
+	..............
+	}
+	
+	Теперь loadData надо вызывать дважды в ViewModel
+	
+	
+	class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+    
+    init {
+        viewModelScope.launch { 
+            repository.loadData()
+        }
+    }
+
+    val state: Flow<State> = repository.currencySharedFlow
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+            emit(State.Loading)
+        }
+
+    fun refreshList() {
+        viewModelScope.launch {
+            repository.loadData()
+        }
+    }
+
+}
+
+Всё работает, но есть проблемы
+1) Мы наружу выдаём объект SharedMutableFlow. Так в него можно заэмитить данные
+
+Исправим:
+Изменяемый объект делаем приватным, а неизменяемый выносим наружу как с LiveData
+
+ private val _currencySharedFlow = MutableSharedFlow<List<Currency>>()
+    val currencySharedFlow : SharedFlow<List<Currency>> = _currencySharedFlow
+    suspend fun loadData(){
+            delay(3000)
+            generateCurrencyList()
+        _currencySharedFlow.emit(currencyList.toList())
+    }
+	
+Проблема казалось бы решена, но это не совсем так, снаружи снова можно привести SharedFlow к MutableSharedFlow (явный каст через as) и заэмиттить данные 
+Решение следующее
+
+val currencySharedFlow : SharedFlow<List<Currency>> = _currencySharedFlow.asSharedFlow() - read only flow При преобразовании приложение упадёт
+
+2) Хотелось бы,чтобы загрузка стартовала сразу без вызова метода init во ViewModel. Для этого можно использовать другой подход, который похож на Subjecy в RxJava
+Вернём реализацию с холодным flow
+
+Создадим 
+
+private val refreshSharedFlow = MutableSharedFlow<Unit>() - тип не имеет значения, поэтому Unit
+
+В холодном потоке подпишемся на горячий поток обновлений. Т.к. горячий никогда не заканчивается, то и холодный не будет заканчиваться
+
+
+fun getCurrencyList() = flow<List<Currency>> {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+
+            refreshSharedFlow.collect{
+                delay(3000)
+                generateCurrencyList()
+                emit(currencyList.toList())
+            }
+    }
+И добавим функцию обновления списка
+
+suspend fun refreshList(){
+       refreshSharedFlow.emit(Unit)
+}
+	
+Итого
+object CryptoRepository {
+
+    ......
+    private val refreshSharedFlow = MutableSharedFlow<Unit>()
+    fun getCurrencyList() = flow<List<Currency>> {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+
+            refreshSharedFlow.collect{
+                delay(3000)
+                generateCurrencyList()
+                emit(currencyList.toList())
+            }
+    }
+
+    suspend fun refreshList(){
+        refreshSharedFlow.emit(Unit)
+    }
+
+    private fun generateCurrencyList() ...
+}
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+            emit(State.Loading)
+        }
+
+    fun refreshList() {
+        viewModelScope.launch {
+            repository.refreshList()
+        }
+    }
+
+}	
+
+Рассмотрели два способа обновления
+1) SharedMutableFlow как список, в который эмитим обновлённый список
+2) Когда SharedFlow используем как конрейнер для эвента обновления списка. 
+И в холодном потоке на него подписываемся и делаем определённые действия, в данном случае обновляем список

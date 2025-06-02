@@ -1,6 +1,8 @@
 package ru.melolchik.coroutinestart.crypto
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import ru.melolchik.coroutinestart.cript.Currency
 import kotlin.random.Random
@@ -10,14 +12,21 @@ object CryptoRepository {
     private val currencyNames = listOf("BTC", "ETH", "USDT", "BNB", "USDC")
     private val currencyList = mutableListOf<Currency>()
 
+    private val refreshSharedFlow = MutableSharedFlow<Unit>()
     fun getCurrencyList() = flow<List<Currency>> {
-        emit(currencyList.toList())
-        while (true) {
             delay(3000)
             generateCurrencyList()
             emit(currencyList.toList())
-            delay(3000)
-        }
+
+            refreshSharedFlow.collect{
+                delay(3000)
+                generateCurrencyList()
+                emit(currencyList.toList())
+            }
+    }
+
+    suspend fun refreshList(){
+        refreshSharedFlow.emit(Unit)
     }
 
     private fun generateCurrencyList() {
