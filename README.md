@@ -1399,7 +1399,7 @@ class CryptoViewModel : ViewModel() {
 3) launchWhenResumed и прочие являются небезопасными и не рекомендуются
 
 
-15.8 Холодные Flow
+#15.8 Холодные Flow
 
 suspend fun main(){
 
@@ -1513,3 +1513,113 @@ Process finished with exit code 0
 2) На каждую подписку создаётся новый flow - новый поток данных
 Если поставить delay(5000) между корутинами, вторая подписка начнётся также с 0 
 3) Если какому-то коллетору данные больше не нужны , то и поток прекратит своё выполнение . Пример : first
+
+#15.9 Горячие Flow. MutableSharedFlow
+
+Один из видов горячих потоков это SharedFlow, но это интерфейс и создать его можно только через ФУНКЦИЮ MutableSharedFlow() (хотя выглядит как конструктор объекта)
+
+При создании холодных flow нужно сразу определить все элементы, которые в нём будут, Вставлять в него значения снаружи нельзя!Можно только подписываться
+
+С горячими flow дело обстоит по другому. На них можно подписываться и эмиттить значения снаружи
+
+
+suspend fun main(){
+
+    val flow = MutableSharedFlow<Int>()
+    
+    coroutineScope.launch {
+        repeat(5){
+            println("Emitted: $it")
+            flow.emit(it)
+            delay(1000)
+        }
+    }
+
+    val job1 = coroutineScope.launch {
+        flow.collect {
+            println("collect 1st: $it")
+        }
+    }
+    val job2 = coroutineScope.launch {
+        flow.collect {
+            println("collect 2nd: $it")
+        }
+    }
+
+    job1.join()
+    job2.join()
+}
+
+Emitted: 0
+Emitted: 1
+collect 2nd: 1
+collect 1st: 1
+Emitted: 2
+collect 2nd: 2
+collect 1st: 2
+Emitted: 3
+collect 1st: 3
+collect 2nd: 3
+Emitted: 4
+collect 1st: 4
+collect 2nd: 4
+
+Здесь видно, что flow эмиттит значения один раз, т.е. создаёт только один поток данных для всех подписчиков!!!! Поток шарится между подписчиками
+
+Мы говорили,что холодные потоки, эмиттят занчения только когда есть подписчики, посмотрим , что с горячими потоками
+Уберём первого подписчика и оставим только второго
+
+suspend fun main(){
+
+    val flow = MutableSharedFlow<Int>()
+
+    coroutineScope.launch {
+        repeat(20){
+            println("Emitted: $it")
+            flow.emit(it)
+            delay(1000)
+        }
+    }
+
+//    val job1 = coroutineScope.launch {
+//        flow.collect {
+//            println("collect 1st: $it")
+//        }
+//    }
+
+    delay(5000)
+    val job2 = coroutineScope.launch {
+        flow.collect {
+            println("collect 2nd: $it")
+        }
+    }
+
+    //job1.join()
+    job2.join()
+}
+
+
+Emitted: 0
+Emitted: 1
+Emitted: 2
+Emitted: 3
+Emitted: 4
+Emitted: 5
+Emitted: 6
+collect 2nd: 6
+Emitted: 7
+collect 2nd: 7
+Emitted: 8
+collect 2nd: 8
+ Впервые подписваемся через 5 сек, но данные эмитятся сразу, не смотря на то, что нет подписчиков и подписчик начинает получать значения с 6
+ 
+В отличии от холодных, горячий flow продолжает эмиттитьь данные, даже если подписчику они не нужны, например при вызове first
+
+Следующая особенность. Холодный поток заканчивает свою работы после последнего эмитта, горячий поток не завершается если эмиттов больше нет. Он не завершается никогда!!!
+
+Таким образом hot flow имеет следующие особенности
+
+1) Эмиттит значения не зависимо от наличия подписчиков
+2) Подписчики получают одни и те же элементы - ОДИН поток данных
+3) Когда подписчикам больше не нужны данные, flow продолжает работать
+4) Когда в потоке больше нет данных, flow не завершается никогда
