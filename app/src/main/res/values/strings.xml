@@ -5,9 +5,15 @@
     <string name="temperature">Temperature:</string>
     <string name="loading_temperature_toast">Loading temperature for city: %s</string>
     <string name="calculate">Calculate</string>
-
     <string name="add_user">Add user</string>
     <string name="enter_username">Enter username:</string>
     <string name="users_activity">Users Activity</string>
     <string name="launch_next_screen">Launch next screen</string>
+    <string name="currency_price">$%s</string>
+    <string name="crypto_activity">Crypto Activity</string>
+    <string name="refresh">Refresh</string>
+    <string name="team_1">Team 1</string>
+    <string name="team_2">Team 2</string>
+    <string name="team_score_activity">Team Score Activity</string>
+    <string name="default_score">0</string>
 </resources>

@@ -6,7 +6,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
+import ru.melolchik.coroutinestart.crypto.CryptoActivity
 import ru.melolchik.coroutinestart.databinding.ActivityMainBinding
+import ru.melolchik.coroutinestart.team_score.TeamScoreActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -30,6 +32,12 @@ class MainActivity : AppCompatActivity() {
         //viewModel.method()
         binding.buttonUsersActivity.setOnClickListener {
             startActivity(UsersActivity.newIntent(this))
+        }
+        binding.buttonCryptoActivity.setOnClickListener {
+            startActivity(CryptoActivity.newIntent(this))
+        }
+        binding.teamScoreActivity.setOnClickListener {
+            startActivity(TeamScoreActivity.newIntent(this))
         }
     }
 
