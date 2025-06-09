@@ -5,7 +5,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import ru.melolchik.coroutinestart.databinding.ActivityTeamScoreBinding
 
 class TeamScoreActivity : AppCompatActivity() {
@@ -26,23 +30,29 @@ class TeamScoreActivity : AppCompatActivity() {
     }
 
     private fun observeViewModel() {
-        viewModel.state.observe(this) {
-            when (it) {
-                is TeamScoreState.Game -> {
-                    binding.team1Score.text = it.score1.toString()
-                    binding.team2Score.text = it.score2.toString()
-                }
-                is TeamScoreState.Winner -> {
-                    binding.team1Score.text = it.score1.toString()
-                    binding.team2Score.text = it.score2.toString()
-                    Toast.makeText(
-                        this,
-                        "Winner: ${it.winnerTeam}",
-                        Toast.LENGTH_LONG
-                    ).show()
+        lifecycleScope.launch{
+            repeatOnLifecycle(Lifecycle.State.RESUMED){
+                viewModel.state.collect {
+
+                    when (it) {
+                        is TeamScoreState.Game -> {
+                            binding.team1Score.text = it.score1.toString()
+                            binding.team2Score.text = it.score2.toString()
+                        }
+                        is TeamScoreState.Winner -> {
+                            binding.team1Score.text = it.score1.toString()
+                            binding.team2Score.text = it.score2.toString()
+                            Toast.makeText(
+                                 this@TeamScoreActivity,
+                                "Winner: ${it.winnerTeam}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
             }
         }
+
     }
 
     private fun setupListeners() {

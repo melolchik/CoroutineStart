@@ -1904,3 +1904,278 @@ class CryptoViewModel : ViewModel() {
 
 
 https://flowmarbles.com/ - операторы Kotlin Flow
+
+#15.12 StateFlow
+
+#Prepare
+Add :
+//Две команды
+enum class Team {
+    TEAM_1, TEAM_2
+}
+
+//Два стейта
+sealed class TeamScoreState {
+
+    data class Game(
+        val score1: Int,
+        val score2: Int
+    ) : TeamScoreState()
+
+    data class Winner(
+        val winnerTeam: Team,
+        val score1: Int,
+        val score2: Int
+    ) : TeamScoreState()
+}
+//Пример с LiveData
+class TeamScoreViewModel : ViewModel() {
+
+    private val _state = MutableLiveData<TeamScoreState>(TeamScoreState.Game(0, 0))
+    val state: LiveData<TeamScoreState> = _state
+
+    fun increaseScore(team: Team) {
+        val currentState = _state.value
+        if (currentState is TeamScoreState.Game) {
+            if (team == Team.TEAM_1) {
+                val oldValue = currentState.score1
+                val newValue = oldValue + 1
+                _state.value = currentState.copy(score1 = newValue)
+                if (newValue >= WINNER_SCORE) {
+                    _state.value = TeamScoreState.Winner(
+                        winnerTeam = Team.TEAM_1,
+                        newValue,
+                        currentState.score2
+                    )
+                }
+            } else {
+                val oldValue = currentState.score2
+                val newValue = oldValue + 1
+                _state.value = currentState.copy(score2 = newValue)
+                if (newValue >= WINNER_SCORE) {
+                    _state.value = TeamScoreState.Winner(
+                        winnerTeam = Team.TEAM_2,
+                        currentState.score1,
+                        newValue
+                    )
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val WINNER_SCORE = 7
+    }
+}
+
+class TeamScoreActivity : AppCompatActivity() {
+
+    private val binding by lazy {
+        ActivityTeamScoreBinding.inflate(layoutInflater)
+    }
+
+    private val viewModel by lazy {
+        ViewModelProvider(this)[TeamScoreViewModel::class.java]
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(binding.root)
+        observeViewModel()
+        setupListeners()
+    }
+
+    private fun observeViewModel() {
+        viewModel.state.observe(this) {
+            when (it) {
+                is TeamScoreState.Game -> {
+                    binding.team1Score.text = it.score1.toString()
+                    binding.team2Score.text = it.score2.toString()
+                }
+                is TeamScoreState.Winner -> {
+                    binding.team1Score.text = it.score1.toString()
+                    binding.team2Score.text = it.score2.toString()
+                    Toast.makeText(
+                        this,
+                        "Winner: ${it.winnerTeam}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun setupListeners() {
+        binding.team1Logo.setOnClickListener {
+            viewModel.increaseScore(Team.TEAM_1)
+        }
+        binding.team2Logo.setOnClickListener {
+            viewModel.increaseScore(Team.TEAM_2)
+        }
+    }
+
+    companion object {
+
+        fun newIntent(context: Context) = Intent(context, TeamScoreActivity::class.java)
+    }
+}
+
+Наша задача - переписать ViewModel, чтобы вместо LiveData использовался Flow
+
+
+Воспользуемся MutableSharedFlow
+
+Заменяем
+
+private val _state = MutableSharedFlow<TeamScoreState>();
+val state = _state.asSharedFlow()
+
+Возникает проблема - получить текущее значение, из MutableSharedFlow мы не можем, поэтому добавим доп.переменную , в которой будеи хранить последний стейт - кеш
+
+private var cachedState = TeamScoreState.Game(0,0) 
+
+Итог
+
+class TeamScoreViewModel : ViewModel() {
+
+    private var cachedState: TeamScoreState = TeamScoreState.Game(0, 0)
+    private val _state = MutableSharedFlow<TeamScoreState>();
+    val state = _state.asSharedFlow().onEach { 
+        cachedState = it
+    }
+
+    fun increaseScore(team: Team) {
+
+        viewModelScope.launch {
+            val currentState = cachedState
+            if (currentState is TeamScoreState.Game) {
+                if (team == Team.TEAM_1) {
+                    val oldValue = currentState.score1
+                    val newValue = oldValue + 1
+                    _state.emit(currentState.copy(score1 = newValue))
+                    if (newValue >= WINNER_SCORE) {
+                        _state.emit(
+                            TeamScoreState.Winner(
+                                winnerTeam = Team.TEAM_1,
+                                newValue,
+                                currentState.score2
+                            )
+                        )
+                    }
+                } else {
+                    val oldValue = currentState.score2
+                    val newValue = oldValue + 1
+                    _state.emit(currentState.copy(score2 = newValue))
+                    if (newValue >= WINNER_SCORE) {
+                        _state.emit(
+                            TeamScoreState.Winner(
+                                winnerTeam = Team.TEAM_2,
+                                currentState.score1,
+                                newValue
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val WINNER_SCORE = 7
+    }
+}
+	
+	Меняем observe в  Activity
+	
+private fun observeViewModel() {
+        lifecycleScope.launch{
+            repeatOnLifecycle(Lifecycle.State.RESUMED){
+                viewModel.state.collect {
+
+                    when (it) {
+                        is TeamScoreState.Game -> {
+                            binding.team1Score.text = it.score1.toString()
+                            binding.team2Score.text = it.score2.toString()
+                        }
+                        is TeamScoreState.Winner -> {
+                            binding.team1Score.text = it.score1.toString()
+                            binding.team2Score.text = it.score2.toString()
+                            Toast.makeText(
+                                 this@TeamScoreActivity,
+                                "Winner: ${it.winnerTeam}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }
+        }
+        
+    }
+	
+Всё отлично, но при повороте state сбрасывается. В этом отличие Flow и LiveData - LiveData при повороте сохраняет последнее состояние
+За это поведение в MutableSharedFlow отвечеет параметр reply, по умолчанию = 0. Он отвечет за то, сколько заэмиченных элементов в нём будет храниться и отдано подписчикам
+Если сделать reply = 1, то MutableSharedFlow будет работать как LiveData
+
+ private val _state = MutableSharedFlow<TeamScoreState>(replay = 1);
+ 
+ Теперь понятны следующие недостатки SharedFlow
+ - параметр replay может принимать любое значение, поэтому не известно, сколько объектов в данный момент хранится в этом потоке, поэтому мы не можем вызвать метод value 
+ и получить последнее (текущее) значение, поэтому мы добавили кеш
+ - по этой же причине при создании MutableSharedFlow мы не можем передать значение по умолчанию, было бы гораздо лучше, если бы такая возможность была.
+ 
+ Для решения описанных проблем  был создан горячий flow StateFlow
+ При создании MutableStateFlow replay = 1 (и это не изменить) + мы обязаны передать изначальное значение
+ 
+ private val _state = MutableStateFlow<TeamScoreState>(TeamScoreState.Game(0, 0));
+ val state = _state.asStateFlow() // передать неизменяемый state
+ 
+ StateFlow всегда хранит какое-то значение, поэтому кеш можно убрать и получать значение через value
+ Записывать значение также можно через value без emit и корутин
+ Итог
+ class TeamScoreViewModel : ViewModel() {
+
+    private val _state = MutableStateFlow<TeamScoreState>(TeamScoreState.Game(0, 0));
+    val state = _state.asStateFlow()
+
+    fun increaseScore(team: Team) {
+
+
+        val currentState = state.value
+        if (currentState is TeamScoreState.Game) {
+            if (team == Team.TEAM_1) {
+                val oldValue = currentState.score1
+                val newValue = oldValue + 1
+                _state.value = (currentState.copy(score1 = newValue))
+                if (newValue >= WINNER_SCORE) {
+                    _state.value =
+                        TeamScoreState.Winner(
+                            winnerTeam = Team.TEAM_1,
+                            newValue,
+                            currentState.score2
+                        )
+
+                }
+            } else {
+                val oldValue = currentState.score2
+                val newValue = oldValue + 1
+                _state.value = (currentState.copy(score2 = newValue))
+                if (newValue >= WINNER_SCORE) {
+                    _state.value =
+                        TeamScoreState.Winner(
+                            winnerTeam = Team.TEAM_2,
+                            currentState.score1,
+                            newValue
+                        )
+
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val WINNER_SCORE = 7
+    }
+}
+
+Мы получили код, который практически ничем не отличается от использования LiveData, но можно использовать все преимущества flow
