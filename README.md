@@ -2179,3 +2179,264 @@ private fun observeViewModel() {
 }
 
 Мы получили код, который практически ничем не отличается от использования LiveData, но можно использовать все преимущества flow
+
+#15.13 Backpressure и buffer
+
+Урок и файл lesson15_13
+Создадим холодный поток и его collect
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val job = scope.launch {
+        val flow : Flow<Int> = flow {
+            repeat(10){
+                println("Emitted $it")
+                emit(it)
+            }
+        }
+
+        flow.collect{
+            println("Collected: $it")
+        }
+    }
+
+    job.join()
+}
+
+Теперь после каждого эмитта поставим задержку 200 -  delay(200), а после коллекта 1000  delay(1000)
+Теперь flow эмиттит значение быстрее, чем коллектор обрабатывает
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val job = scope.launch {
+        val flow : Flow<Int> = flow {
+            repeat(10){
+                println("Emitted $it")
+                emit(it)
+                delay(200)
+            }
+        }
+
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+
+    job.join()
+}
+Результат такой же
+
+Emitted 0
+Collected: 0
+Emitted 1
+Collected: 1
+Emitted 2
+Collected: 2
+Emitted 3
+Collected: 3
+Emitted 4
+Collected: 4
+Emitted 5
+Collected: 5
+Emitted 6
+Collected: 6
+Emitted 7
+Collected: 7
+Emitted 8
+Collected: 8
+Emitted 9
+Collected: 9
+
+Process finished with exit code 0
+Значения эмитятся только после того, как предыдущее значение было обработано
+
+Здесь происходит интересная, но неочевидная вещь - если у какого-то flow появился коллектор, то после того как заэмиченно значение,
+ эта корутина саспендится до того, пока этот элемент не будет обработан
+ 
+ Добавим комментарий после эмитта
+  emit(it)
+  println("After Emit $it")
+  Результат 
+  
+Emitted 0 - значение эмитится и корутина приостанавливается
+Collected: 0 - значение обрабатывается
+After Emit 0 - управление возвращается в flow
+Emitted 1
+Collected: 1
+After Emit 1
+Emitted 2
+Collected: 2
+After Emit 2
+Emitted 3
+Collected: 3
+After Emit 3
+Emitted 4
+Collected: 4
+After Emit 4
+Emitted 5
+Collected: 5
+After Emit 5
+Emitted 6
+Collected: 6
+After Emit 6
+Emitted 7
+Collected: 7
+After Emit 7
+Emitted 8
+Collected: 8
+After Emit 8
+Emitted 9
+Collected: 9
+After Emit 9
+
+Process finished with exit code 0
+
+Пример с печеньем
+Чтобы улучшить ситуацию, можно использовать буффер
+
+ val flow : Flow<Int> = flow {
+            repeat(10){
+                println("Emitted $it")
+                emit(it)
+                println("After Emit $it")
+                delay(200)
+            }
+        }.buffer()
+
+И программа будет работать по-другому
+
+Emitted 0
+After Emit 0 - корутина не приостанавливается
+Collected: 0
+Emitted 1
+After Emit 1
+Emitted 2
+After Emit 2
+Emitted 3
+After Emit 3
+Emitted 4
+After Emit 4
+Collected: 1
+Emitted 5
+After Emit 5
+Emitted 6
+After Emit 6
+Emitted 7
+After Emit 7
+Emitted 8
+After Emit 8
+Emitted 9
+After Emit 9
+Collected: 2
+Collected: 3
+Collected: 4
+Collected: 5
+Collected: 6
+Collected: 7
+Collected: 8
+Collected: 9
+
+Process finished with exit code 0
+
+Теперь flow или producer не ждёт пока коллектор обработает элементы
+Дефолтное значение capacity = BUFFERED и размер буфера 64
+
+Сделаем размер буфера = 1, корутина приостанавливается когда заполнен буфер
+
+public fun <T> Flow<T>.buffer(capacity: Int = BUFFERED, onBufferOverflow: BufferOverflow = BufferOverflow.SUSPEND): Flow<T> 
+
+Есть вторая переменная BufferOverflow, которая по умолчанию = BufferOverflow.SUSPEND, то о чём мы говорили выше. Поведение = приостановка flow
+Есть другие значения
+
+BufferOverflow.DROP_OLDEST - удаляются более старые значения из буфера, получается коллектор получает более новые элементы
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val job = scope.launch {
+        val flow : Flow<Int> = flow {
+            repeat(10){
+                println("Emitted $it")
+                emit(it)
+                println("After Emit $it")
+                delay(200)
+            }
+        }.buffer(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+	
+Emitted 0
+Collected: 0 -------------
+After Emit 0
+Emitted 1
+After Emit 1
+Emitted 2
+After Emit 2
+Emitted 3
+After Emit 3
+Emitted 4
+After Emit 4
+Collected: 4 ------------
+Emitted 5
+After Emit 5
+Emitted 6
+After Emit 6
+Emitted 7
+After Emit 7
+Emitted 8
+After Emit 8
+Emitted 9
+After Emit 9
+Collected: 9 ------------- Коллектор получает более новые элементы, остальные выбрасываются
+
+Process finished with exit code 0
+
+Есть другая стратегия BufferOverflow.DROP_LATEST - игнорируются более новые элементы, если буфер заполнен
+
+Emitted 0
+Collected: 0 -------------
+After Emit 0
+Emitted 1
+After Emit 1
+Emitted 2
+After Emit 2
+Emitted 3
+After Emit 3
+Emitted 4
+After Emit 4
+Collected: 1--------------
+Emitted 5
+After Emit 5
+Emitted 6
+After Emit 6
+Emitted 7
+After Emit 7
+Emitted 8
+After Emit 8
+Emitted 9
+After Emit 9
+Collected: 5 -------------
+
+Process finished with exit code 0
+
+Backpressure - есть producer и consumer, при этом производитель эмиттит значения быстрее, чем потребитель может их обработать
+Обрабатывается разными способами
+1) Если буфер не указываем используется стратегия SUSPEND
+2) Буфер без параметров = SUSPEND и буфер 64
+3) Стратегия DROP_LATEST и DROP_OLDEST
+
+Есть константа для capacity CONFLATED
+
+ if (capacity == CONFLATED) {
+        capacity = 0
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+ }
