@@ -2440,3 +2440,413 @@ Backpressure - есть producer и consumer, при этом производи
         capacity = 0
         onBufferOverflow = BufferOverflow.DROP_OLDEST
  }
+ 
+ #15.14 Буфер в горячих flow
+ 
+ lesson15_14
+ 
+ suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val flow = MutableSharedFlow<Int>()
+
+    val producer = scope.launch {
+        delay(500) - добавим задержку, чтобы все элементы успели попасть в коллектор
+        repeat(10){
+            println("Emitted $it")
+            flow.emit(it)
+            println("After Emit $it")
+            delay(200)
+        }
+    }
+
+    val consumer = scope.launch {
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+
+
+
+    producer.join()
+    consumer.join()
+}
+
+
+Emitted 0
+Collected: 0
+After Emit 0
+Emitted 1
+Collected: 1
+After Emit 1
+Emitted 2
+Collected: 2
+After Emit 2
+Emitted 3
+Collected: 3
+After Emit 3
+Emitted 4
+Collected: 4
+After Emit 4
+Emitted 5
+Collected: 5
+After Emit 5
+Emitted 6
+Collected: 6
+After Emit 6
+Emitted 7
+Collected: 7
+After Emit 7
+Emitted 8
+Collected: 8
+After Emit 8
+Emitted 9
+Collected: 9
+After Emit 9
+
+Поведение такое же как для холодных flow без буфера
+
+Зайдём в определение MutableSharedFlow
+
+public fun <T> MutableSharedFlow(
+    replay: Int = 0, кол-во эмиттов, которые будут отданы при подписку
+    extraBufferCapacity: Int = 0, почему extra - реальный размер буфера будет равен этому значению + replay
+    onBufferOverflow: BufferOverflow = BufferOverflow.SUSPEND - такое же значение как для холодных flow
+): MutableSharedFlow<T>
+
+Т.е. MutableSharedFlow будет работать также при наличии подписчика. Без подписчика ничего саспендиться не будет.
+
+Поменяем на MutableStateFlow
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val flow = MutableStateFlow(0)
+
+    val producer = scope.launch {
+        delay(500)
+        repeat(10){
+            println("Emitted $it")
+            flow.emit(it)
+            println("After Emit $it")
+            delay(200)
+        }
+    }
+
+    val consumer = scope.launch {
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+
+
+
+    producer.join()
+    consumer.join()
+}
+
+Collected: 0 --- значение по умолчанию
+Emitted 0
+After Emit 0
+Emitted 1
+After Emit 1
+Emitted 2
+After Emit 2
+Collected: 2 --------------
+Emitted 3
+After Emit 3
+Emitted 4
+After Emit 4
+Emitted 5
+After Emit 5
+Emitted 6
+After Emit 6
+Emitted 7
+After Emit 7
+Collected: 7 ----------------
+Emitted 8
+After Emit 8
+Emitted 9
+After Emit 9
+Collected: 9 ----------------
+
+Видим,что используется стратегия DROP_OLDEST - видим последнее состояние
+Перейдём в описание MutableStateFlow - он является наследником MutableSharedFlow c параметрами reply = 1 и onBufferOverflow = BufferOverflow.DROP_OLDEST 
+
+// MutableStateFlow(initialValue) is a shared flow with the following parameters:
+val shared = MutableSharedFlow(
+    replay = 1,
+    onBufferOverflow = BufferOverflow.DROP_OLDEST
+)
+
+shared.tryEmit(initialValue) // emit the initial value
+val state = shared.distinctUntilChanged() // get StateFlow-like behavior
+
+Заменем в коде - будем всегда передавать одно значение, например 1 
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val flow = MutableStateFlow(0)
+
+    val producer = scope.launch {
+        delay(500)
+        repeat(10){
+            println("Emitted 1")!!
+            flow.emit(1)!!
+            println("After Emit 1")!!
+            delay(200)
+        }
+    }
+
+    val consumer = scope.launch {
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+    producer.join()
+    consumer.join()
+}
+
+Результат
+
+Collected: 0 ----------------
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Collected: 1 ----------------- и далее 1 больше не коллектится, пока не появится значение отличное от предыдущего
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+
+
+Теперь поменяем на MutableSharedFlow
+
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val flow = MutableSharedFlow<Int>()
+
+    val producer = scope.launch {
+        delay(500)
+        repeat(10){
+            println("Emitted 1")
+            flow.emit(1)
+            println("After Emit 1")
+            delay(200)
+        }
+    }
+
+    val consumer = scope.launch {
+        flow.collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+
+    producer.join()
+    consumer.join()
+}
+
+Результат:
+
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+Emitted 1
+Collected: 1 -----------------
+After Emit 1
+
+Поведение другое - 1 обрабатывается каждый раз. И если хотим повторить поведение MutableStateFlow, то добавляем distinctUntilChanged в consumer
+
+
+ val consumer = scope.launch {
+        flow.distinctUntilChanged()
+            .collect{
+            println("Collected: $it")
+            delay(1000)
+        }
+    }
+	
+Результат:
+
+Emitted 1
+Collected: 1 --------------------- далее игнрируем элементы, которые повторяются один за другим - подряд
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+Emitted 1
+After Emit 1
+
+
+Ещё раз проговорим отличия StateFlow и SharedFlow
+
+
+
+							StateFlow								SharedFlow
+							
+Значение по умолчанию		Есть 									Нет
+
+Парметр replay				= 1//нельзя изменить					= 0// можно изменить
+
+Поддержка backpressure		DROP_OLDEST//нельзя изменить			SUSPEND // можно установить размер буфера и поменять стратегию
+
+При эмитте одинаковых		collect() отработает 1 раз 				collect будет отрабатывать каждый раз, а 1 раз только если установить distinctUntilChanged
+элементов`
+
+Свойство value				есть 									Нет
+
+
+
+Теперь
+
+suspend fun main(){
+
+    val scope = CoroutineScope(Dispatchers.Default)
+
+    val flow = MutableStateFlow<Int>() !! Вернём MutableStateFlow
+
+    val producer = scope.launch {
+        delay(500)
+        repeat(10){
+            println("Emitted $it") !!Вернём it
+            flow.emit(it)
+            println("After Emit $it")
+            delay(200)
+        }
+    }
+
+    val consumer = scope.launch {
+        flow.collect{
+            println("Collecting started: $it")!! Начало обработки
+            delay(5000)!! 5000
+            println("Collecting finished: $it")!! Конц обработки
+        }
+    }
+    producer.join()
+    consumer.join()
+}
+
+
+
+Collecting started: 0 Мы хотим на экране отображать только последний стейт, но при этом долго обрабатывем первое состояние и игнорим много последующих эмиттов
+Emitted 0
+After Emit 0
+Emitted 1
+After Emit 1
+Emitted 2
+After Emit 2
+Emitted 3
+After Emit 3
+Emitted 4
+After Emit 4
+Emitted 5
+After Emit 5
+Emitted 6
+After Emit 6
+Emitted 7
+After Emit 7
+Emitted 8
+After Emit 8
+Emitted 9
+After Emit 9 - flow всё обработал, прслал 9
+Collecting finished: 0 - завершилась обработка первого эмитта
+Collecting started: 9 - и только после этого начали обрабатывать последнее состояние
+Collecting finished: 9
+
+Было бы гораздо лучше, чтобы при получении следующего состояния, обработка старого отменялась, т.к. тот элемент нас больше не интересует, и этого поведения легко добится заменив 
+collect на collectLatest
+
+Collecting started: 0
+Emitted 0
+After Emit 0
+Emitted 1
+After Emit 1
+Collecting started: 1 - обработка старого отменена до завершения
+Emitted 2
+After Emit 2
+Collecting started: 2
+Emitted 3
+After Emit 3
+Collecting started: 3
+Emitted 4
+After Emit 4
+Collecting started: 4
+Emitted 5
+After Emit 5
+Collecting started: 5
+Emitted 6
+After Emit 6
+Collecting started: 6
+Emitted 7
+After Emit 7
+Collecting started: 7
+Emitted 8
+After Emit 8
+Collecting started: 8
+Emitted 9
+After Emit 9
+Collecting started: 9
+Collecting finished: 9
+
+Так работают все операторы с Latest - их суть - отменять обработку предыдущего состояния.
