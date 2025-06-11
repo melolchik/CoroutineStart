@@ -3030,3 +3030,200 @@ val currencyListFlow = flow<List<Currency>> {
         initialValue = currencyList.toList())
 		
 И тепепрь всё работает корректно. Оба state подписываются на один flow
+
+#15.16 Exception Handling - обработка ошибок
+
+1) Просто оборачиваем collect в try..catch
+suspend fun main(){
+    val flow = loadDataFlow();
+    try {
+        flow.collect{
+            println("Collected  $it")
+        }
+    }catch (ex : Exception){
+        println("Catch ex = $ex")
+    }
+}
+
+fun loadDataFlow() : Flow<Int> = flow{
+    repeat(5){
+        delay(500)
+        emit(it)
+    }
+
+    throw RuntimeException()
+}
+
+2) Перенесём try..catch в flow
+
+suspend fun main() {
+    val flow = loadDataFlow();
+
+    flow.collect {
+        println("Collected  $it")
+        throw RuntimeException("Exception from collect")
+    }
+   
+}
+
+fun loadDataFlow() : Flow<Int> = flow{
+    try {
+        repeat(5){
+            delay(500)
+            emit(it)
+        }
+
+        throw RuntimeException("Exception from flow")
+    }catch (ex : Exception){
+        println("Catch ex = $ex")
+    }
+
+}
+
+Результат
+
+Collected  0
+Catch ex = java.lang.RuntimeException: Exception from collect - Exception из collect ловится внутри flow Совершенно неожиданное поведение. 
+!!!Это неудобно, т.к. мы можем вообще не знать как реализован flow
+Так делать нельзя, т.к. это нарушает пинцип прозрачности исключений, который говорит о том, что все исключения следует пробрасывать до коллектора
+
+3) Самый лучший способ использовать оператор catch
+Уберём обработку исключений во всех остальных местах 
+
+suspend fun main() {
+    val flow = loadDataFlow();
+
+    flow.catch {//работает для операторов выше
+            println("Catch ex = $it")
+        }
+        .collect {
+        println("Collected  $it")
+    }
+
+}
+
+fun loadDataFlow(): Flow<Int> = flow {
+    repeat(5) {
+        delay(500)
+        emit(it)
+    }
+    throw RuntimeException("Exception from flow")
+
+}
+
+
+4) Посмотрим обработку State
+
+suspend fun main() {
+    val flow = loadDataFlow();
+
+    flow
+        .map { State.Content(it) as State }
+        .onStart { emit(State.Loading) }
+        .catch {
+            //println("Catch ex = $it")
+            emit(State.Error)
+        }
+        .collect {
+            //println("Collected  $it")
+            when (it){
+                is State.Content -> {
+                    println("Collected ${it.value}")
+                }
+                State.Error -> {
+                    println("Error")
+                }
+                State.Loading -> {
+                    println("Loading...")
+                }
+            }
+    }
+
+}
+
+fun loadDataFlow(): Flow<Int> = flow {
+    repeat(5) {
+        delay(500)
+        emit(it)
+    }
+    throw RuntimeException("Exception from flow")
+
+}
+
+sealed class State(){
+    data class Content(val value : Int) : State()
+    object Loading : State()
+    object Error : State()
+}
+
+Результат
+
+Loading...
+Collected 0
+Collected 1
+Collected 2
+Collected 3
+Collected 4
+Error
+
+Если оставить try..catch внутри flow то никогда не будет состояния ошибки выведено наружи. Нужно помнить принцип ПРОЗРАЧНОСТИ ИСКЛЮЧЕНИЙ
+
+Теперь рассмотрим оператор retry
+
+suspend fun main() {
+    val flow = loadDataFlow();
+
+    flow
+        .map { State.Content(it) as State }
+        .onStart { emit(State.Loading) }
+        .retry {
+            true// при любой ошибке вызываем повтор
+        }
+        .catch {
+            //println("Catch ex = $it")
+            emit(State.Error)
+        }
+        .collect {
+            //println("Collected  $it")
+            when (it){
+                is State.Content -> {
+                    println("Collected ${it.value}")
+                }
+                State.Error -> {
+                    println("Error")
+                }
+                State.Loading -> {
+                    println("Loading...")
+                }
+            }
+    }
+
+}
+
+Результат
+
+Loading...
+Collected 0
+Collected 1
+Collected 2
+Collected 3
+Collected 4
+Loading...
+Collected 0
+Collected 1
+Collected 2
+Collected 3
+Collected 4
+Loading...
+Collected 0
+Collected 1
+Collected 2
+Collected 3
+Collected 4
+Loading... бесконечно
+
+.retry(2) { //кол-во попыток
+            true// при любой ошибке вызываем повтор
+        }
+		
+retry в качестве параметра принимает suspend функцию , поэтому, например можно использовать delay
