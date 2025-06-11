@@ -2850,3 +2850,183 @@ Collecting started: 9
 Collecting finished: 9
 
 Так работают все операторы с Latest - их суть - отменять обработку предыдущего состояния.
+
+
+#15.15 Операторы ShareIn и StateIn
+Вернёмся к CryptoActivity
+Предположим мы подпишемся дважды на flow 
+repository.getCurrencyList()
+Запускаем ещё одну корутину
+
+  private fun observeData() {
+        lifecycleScope.launch {
+
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.state
+                    .collect {
+                        when (it) {
+                            is State.Initial -> {
+                                binding.progressBarLoading.isVisible = false
+                                binding.refreshButton.isEnabled = false
+                            }
+
+                            is State.Loading -> {
+                                binding.progressBarLoading.isVisible = true
+                                binding.refreshButton.isEnabled = false
+                            }
+
+                            is State.Content -> {
+                                binding.progressBarLoading.isVisible = false
+                                adapter.submitList(it.currencyList)
+                                binding.refreshButton.isEnabled = true
+                            }
+                        }
+                    }
+            }
+        }
+
+        lifecycleScope.launch {
+
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.state
+                    .collect {
+                        when (it) {
+                            is State.Content -> {
+                                Log.d("CryptoActivity", "list = " + it.currencyList.joinToString())
+                            }
+                            else ->{
+                                
+                            }
+                        }
+                    }
+            }
+        }
+    }
+	
+	Спсиок валют в логах отличается от списка в UI - мы это обсуждали - создаются разные потоки данных при разных подписках
+	Как этого избежать. Хорошо бы использовать MutableSharedFlow.
+	Есть способ , текущий холодный flow преобразовать в горячий используя оператор shareIn - он возвращает SharedFlow
+	
+	Идём во ViewModel
+	
+	val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+        .shareIn(
+			scope = viewModelScope //нужен для преобразования холодного flow в горячий. Под капотом у холодного flow будет 
+									//вызван collect и все элементы будут эмититься в горячий flow, для этого нужен scope
+									//а тот scope, который мы используем в активити будет использован для получения уже из горячего flow. Т.е. нужно два scope
+            started = SharingStarted.Eagerly)
+									//Горячий flow эмитит значения независимо от того подписан на них кто-то или нет, холодный только при наличии подписчика, 
+									//поэтому здесь указывается стратегия, которую нужно использовать при получение объектом из холодного flow, т.е. когда нужно
+									//вызвать collect у холодного flow
+									
+
+SharingStarted.Eagerly - сразу вызываем collect у холодного flow, как только будет создан state
+SharingStarted.Lazil - работает практически также, но эмиты начнутся, когда появится первый подписчик у горячего flow
+SharingStarted.WhileSubscribed() - пока есть подписчики и при следующей подписке запустится новый
+
+
+Рассмотрим тепепрь stateIn - он создаёт StateFlow
+val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+        .stateIn(scope = viewModelScope,
+            started = SharingStarted.Lazily,
+            initialValue = State.Loading) - всё тоже самое + изначальное значение
+			
+Наиболее частое применение операторов в репозитории, а не во ViewModel
+
+
+object CryptoRepository {
+
+    private val currencyNames = listOf("BTC", "ETH", "USDT", "BNB", "USDC")
+    private val currencyList = mutableListOf<Currency>()
+
+    private val refreshSharedFlow = MutableSharedFlow<Unit>()
+
+    private val coroutineScope = CoroutineScope(Dispatchers.Default)
+	
+    fun getCurrencyList() = flow<List<Currency>> {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+
+            refreshSharedFlow.collect{
+                delay(3000)
+                generateCurrencyList()
+                emit(currencyList.toList())
+            }
+    }.stateIn(
+        coroutineScope,
+        SharingStarted.Lazily,
+        initialValue = currencyList.toList())
+		....
+}
+
+Убираем stateIn во ViewModel
+
+
+   val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+		
+		
+Всё работает. Казалась бы всё ок. Но предположим getCurrencyList() мы вызываем с нескольких ViewModel -ей. Например, сделаем так
+
+class CryptoViewModel : ViewModel() {
+
+    private val repository = CryptoRepository
+
+    private val loadingFlow = MutableSharedFlow<State>()
+
+    val state: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+
+//продублируем state
+    val state2: Flow<State> = repository.getCurrencyList()
+        .filter { it.isNotEmpty() }
+        .map { State.Content(it) as State }
+        .onStart {
+
+            emit(State.Loading)
+        }.mergeWith(loadingFlow)
+		
+В активити будем подписываться на разные state, в итоге получим разные списки
+При вызове функции repository.getCurrencyList() каждый раз создаётся новый горячий поток на основе холодного
+Чтобы решить это сделаем из функции repository.getCurrencyList() переменную 
+
+
+val currencyListFlow = flow<List<Currency>> {
+            delay(3000)
+            generateCurrencyList()
+            emit(currencyList.toList())
+
+            refreshSharedFlow.collect{
+                delay(3000)
+                generateCurrencyList()
+                emit(currencyList.toList())
+            }
+    }.stateIn(
+        coroutineScope,
+        SharingStarted.Lazily,
+        initialValue = currencyList.toList())
+		
+И тепепрь всё работает корректно. Оба state подписываются на один flow
